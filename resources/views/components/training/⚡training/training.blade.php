@@ -1,403 +1,1836 @@
-<div class="flex flex-col gap-8 p-8 bg-white min-h-screen font-sans text-slate-900">
+<div id="training-management-content" class="relative w-full">
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+        <div class="min-w-0">
+            <flux:heading size="xl" level="1">Training Data Management</flux:heading>
 
-    {{-- HEADER SECTION: KOTAK JUDUL PUTIH BERSIH --}}
-    <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div>
-                <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">
-                    Training Data Management
-                </h2>
-                <p class="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">
-                    Training Management System
-            </div>
+            <flux:subheading size="lg" class="mb-6">
+                Training Management System.
+            </flux:subheading>
+        </div>
 
-            <div class="flex flex-wrap gap-3">
-                <button wire:click="$set('show_import_modal', true)"
-                    class="px-6 py-3 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all text-[10px] uppercase tracking-widest italic">
-                    IMPORT EXCEL
-                </button>
+        <div class="flex flex-wrap items-center gap-2 lg:flex-shrink-0">
+            @can(\App\Support\Auth\Permissions::CREATE_TRAINING)
+                <flux:button
+                    wire:click="$dispatch(
+                        'open-training-batch-form',
+                        { createNew: true }
+                    )"
+                    variant="primary" icon="plus" size="sm" class="font-bold text-xs uppercase">
+                    Buat Training
+                </flux:button>
+            @endcan
 
-                <button wire:click="openCreateModal"
-                    class="px-6 py-3 bg-emerald-600 text-white font-black rounded-2xl hover:bg-emerald-700 shadow-lg shadow-emerald-100 transition-all text-[10px] uppercase tracking-widest italic">
-                    TAMBAH TRAINING
-                </button>
-            </div>
+            @can(\App\Support\Auth\Permissions::IMPORT_TRAINING)
+                <flux:button wire:click="$set('show_import_modal', true)" variant="filled" icon="arrow-up-tray"
+                    size="sm" class="font-bold text-xs uppercase">
+                    Import
+                </flux:button>
+            @endcan
+
+            @can(\App\Support\Auth\Permissions::CREATE_TRAINING)
+                @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+                    @if (! $legacy_grouping_mode)
+                        <flux:button
+                            type="button"
+                            wire:click="startLegacyGrouping"
+                            variant="subtle"
+                            icon="arrow-path"
+                            size="sm"
+                            class="font-bold text-xs uppercase"
+                        >
+                            Rapikan Data Lama
+                        </flux:button>
+                    @endif
+                @endcan
+            @endcan
         </div>
     </div>
 
-    <div class="flex flex-col lg:flex-row gap-8">
-        {{-- SIDEBAR KIRI: LIST DATA --}}
-        <aside class="flex-1 flex flex-col h-[calc(100vh-64px)] sticky top-8 bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden transition-all">
+    <flux:separator variant="subtle" />
 
-            {{-- HEADER SIDEBAR (Sekarang hanya untuk Search) --}}
-            <div class="p-6 bg-white border-b border-slate-100 space-y-4">
-                <div class="flex justify-between items-center gap-4">
-                    <div class="flex-1 relative group">
-                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                        </div>
-                        <input type="text" wire:model.live.debounce.300ms="sidebar_search" placeholder="CARI JUDUL TRAINING..." class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-2xl text-[11px] font-black uppercase text-slate-700">
+    <flux:card class="mt-6 space-y-6">
+
+        @if ($legacy_grouping_mode)
+            <div
+                class="flex flex-col gap-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/70 dark:bg-amber-950/20 lg:flex-row lg:items-center lg:justify-between"
+            >
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <flux:heading size="sm">
+                            Pilih training standalone
+                        </flux:heading>
+
+                        <flux:badge size="sm" color="amber">
+                            {{ count($selected_standalone_training_ids) }} dipilih
+                        </flux:badge>
                     </div>
+
+                    <flux:text class="mt-1 text-xs">
+                        Pilih minimal dua training lama yang merupakan satu rangkaian. Training yang sudah berada dalam group tidak dapat dipilih.
+                    </flux:text>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 lg:shrink-0">
+                    <flux:button
+                        type="button"
+                        wire:click="cancelLegacyGrouping"
+                        variant="ghost"
+                        size="sm"
+                    >
+                        Batal
+                    </flux:button>
+
+                    <flux:button
+                        type="button"
+                        wire:click="openConvertTrainingGroupModal"
+                        wire:loading.attr="disabled"
+                        wire:target="openConvertTrainingGroupModal"
+                        variant="primary"
+                        icon="check"
+                        size="sm"
+                        :disabled="count($selected_standalone_training_ids) < 2"
+                    >
+                        Review dan Convert
+                    </flux:button>
                 </div>
             </div>
+        @endif
 
-            {{-- LIST DATA --}}
-            <div class="flex-1 overflow-y-auto divide-y divide-slate-50 custom-scrollbar">
-                @forelse($trainings as $t)
-                {{-- Pembungkus Utama per Item --}}
-                <div wire:key="training-item-{{ $t->id }}" class="relative group w-full transition-all {{ $training_id == $t->id ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-blue-50/50' }}">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div class="w-full sm:w-48">
+                    <flux:select wire:model.live="activity_filter" size="sm" placeholder="Semua Activity">
+                        <flux:select.option value="">Semua Activity</flux:select.option>
+                        <flux:select.option value="Internal">Internal</flux:select.option>
+                        <flux:select.option value="External">External</flux:select.option>
+                    </flux:select>
+                </div>
 
-                    {{-- TOMBOL AKSI (Edit & Delete) - Muncul saat Hover --}}
-                    <div class="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-20">
-                        {{-- Button Edit --}}
-                        <button wire:click="loadTraining({{ $t->id }})" class="p-2 bg-white text-blue-600 rounded-xl shadow-sm hover:bg-blue-600 hover:text-white border border-slate-100">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-3.5 h-3.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
-                            </svg>
-                        </button>
+                <div class="w-full sm:w-48">
+                    <flux:select wire:model.live="skill_filter" size="sm" placeholder="Semua Skill">
+                        <flux:select.option value="">Semua Skill</flux:select.option>
+                        <flux:select.option value="Hard Skill">Hard Skill</flux:select.option>
+                        <flux:select.option value="Soft Skill">Soft Skill</flux:select.option>
+                    </flux:select>
+                </div>
 
-                        {{-- Button Delete --}}
-                        <button wire:click="deleteTraining({{ $t->id }})" wire:confirm="Hapus data training ini?" class="p-2 bg-white text-rose-500 rounded-xl shadow-sm hover:bg-rose-500 hover:text-white border border-slate-100">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-3.5 h-3.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                            </svg>
-                        </button>
-                    </div>
+                @if ($search !== '' || $activity_filter !== '' || $skill_filter !== '')
+                    <flux:button type="button" variant="subtle" size="sm" wire:click="clearFilters"
+                        class="font-black uppercase text-xs">
+                        Reset
+                    </flux:button>
+                @endif
+            </div>
 
-                    {{-- KONTEN TEKS --}}
-                    <div class="w-full text-left p-6">
-                        <span class="text-[9px] font-black {{ $training_id == $t->id ? 'text-blue-600' : 'text-slate-400' }} uppercase tracking-widest block mb-2 italic">
-                            {{ \Carbon\Carbon::parse($t->training_date)->format('Y-m-d') }}
-                        </span>
-                        <h5 class="font-extrabold text-sm text-slate-800 leading-snug uppercase pr-12">{{ $t->title }}</h5>
-                        <div class="flex flex-wrap items-center gap-2 mt-4">
-                            <span class="text-[9px] bg-slate-100 px-3 py-1 rounded-lg text-slate-500 font-bold uppercase border border-slate-200 tracking-tighter">{{ $t->held_by }}</span>
-                            <span class="text-[9px] bg-blue-100 px-3 py-1 rounded-lg text-blue-600 font-bold uppercase border border-blue-200 tracking-tighter">{{ $t->activity_name }}</span>
-                            <span class="text-[9px] bg-emerald-100 px-3 py-1 rounded-lg text-emerald-700 font-bold uppercase border border-emerald-200 tracking-tighter flex items-center gap-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
-                                </svg>
-                                @if($t->trainer_employee_id)
-                                {{-- Jika Internal, tampilkan nama dari relasi --}}
-                                {{ $t->trainerInternal->name ?? 'Internal Trainer' }}
+            <div class="w-full lg:w-[340px]">
+                <flux:input wire:model.live.debounce.300ms="search" placeholder="Cari judul, held by, trainer"
+                    icon="magnifying-glass" clearable size="sm" class="text-xs" />
+            </div>
+        </div>
+
+        <flux:table :paginate="$trainings" pagination:scroll-to="#training-management-content">
+            <flux:table.columns>
+                @if ($legacy_grouping_mode)
+                    <flux:table.column class="w-16 text-xs font-black uppercase" align="center">
+                        Pilih
+                    </flux:table.column>
+                @endif
+
+                <flux:table.column class="text-xs font-black uppercase" align="center">
+                    No.
+                </flux:table.column>
+
+                <flux:table.column sortable :sorted="$sortBy === 'title'" :direction="$sortDirection"
+                    wire:click="sort('title')" class="text-xs font-black uppercase">
+                    Training
+                </flux:table.column>
+
+                <flux:table.column sortable :sorted="$sortBy === 'training_date'" :direction="$sortDirection"
+                    wire:click="sort('training_date')" class="text-xs font-black uppercase">
+                    Jadwal
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase">
+                    Trainer
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase">
+                    Kategori
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase" align="center">
+                    Peserta
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase" align="center">
+                    Status
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase" align="center">
+                    Aksi
+                </flux:table.column>
+            </flux:table.columns>
+
+            <flux:table.rows>
+                @forelse ($trainings as $training)
+                    @php
+                        $isGrouped = $training->training_group_id !== null && $training->trainingGroup !== null;
+
+                        $batchRows = $isGrouped ? $training->trainingGroup->trainings : collect([$training]);
+
+                        $batchRows = $batchRows
+                            ->sortBy([['batch_number', 'asc'], ['training_date', 'asc'], ['id', 'asc']])
+                            ->values();
+
+                        $sessionCount = $batchRows->count();
+                        $hasMultipleSessions = $isGrouped && $sessionCount > 1;
+                        $isSingleSession = ! $hasMultipleSessions;
+
+                        $totalParticipants = $isGrouped
+                            ? (int) $batchRows->sum('participants_count')
+                            : (int) $training->participants_count;
+
+                        $datedBatches = $batchRows
+                            ->filter(fn($batch) => $batch->training_date !== null)
+                            ->sortBy('training_date')
+                            ->values();
+
+                        $firstDate = $datedBatches->first()?->training_date;
+                        $lastDate = $datedBatches->last()?->training_date;
+
+                        $isExpanded =
+                            $hasMultipleSessions
+                            && in_array((int) $training->training_group_id, $expanded_training_groups, true);
+                    @endphp
+
+                    <flux:table.row :key="'training-summary-'.$training->id">
+                        @if ($legacy_grouping_mode)
+                            <flux:table.cell align="center">
+                                @if (! $isGrouped)
+                                    <input
+                                        type="checkbox"
+                                        wire:model.live="selected_standalone_training_ids"
+                                        value="{{ $training->id }}"
+                                        aria-label="Pilih {{ $training->title }}"
+                                        class="size-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                    >
                                 @else
-                                {{-- Jika External, tampilkan nama manual --}}
-                                {{ $t->trainer_external_name ?? 'No Trainer' }}
+                                    <span
+                                        class="text-xs text-zinc-300 dark:text-zinc-700"
+                                        title="Training sudah berada dalam group"
+                                    >
+                                        —
+                                    </span>
                                 @endif
-                            </span>
-                        </div>
-                    </div>
-                </div> {{-- Penutup item --}}
-
-                @empty
-                <div class="p-20 text-center opacity-30 flex flex-col items-center">
-                    <span class="text-4xl mb-4 italic font-black">?</span>
-                    <p class="text-[10px] font-black uppercase italic">Data Training Kosong</p>
-                </div>
-                @endforelse
-            </div>
-
-            {{-- PAGINATION --}}
-            <div class="p-6 bg-slate-50 border-t border-slate-100">
-                <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">
-                        Showing <span class="text-blue-600">{{ $trainings->firstItem() }}</span>
-                        to <span class="text-blue-600">{{ $trainings->lastItem() }}</span>
-                        of <span class="text-blue-600">{{ $trainings->total() }}</span> Results
-                    </div>
-                    <div class="flex items-center gap-2">
-                        @if ($trainings->onFirstPage())
-                        <span class="w-10 h-10 flex items-center justify-center bg-white text-slate-200 rounded-2xl border border-slate-100 cursor-not-allowed">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
-                            </svg>
-                        </span>
-                        @else
-                        <button wire:click="previousPage" class="w-10 h-10 flex items-center justify-center bg-white text-slate-600 rounded-2xl border border-slate-200 hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-95">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
+                            </flux:table.cell>
                         @endif
 
-                        <div class="px-5 py-2 bg-blue-50 text-blue-700 rounded-2xl text-[10px] font-black border border-blue-100 uppercase italic">
-                            Page {{ $trainings->currentPage() }} / {{ $trainings->lastPage() }}
-                        </div>
+                        <flux:table.cell class="text-center font-semibold text-xs tabular-nums">
+                            {{ $trainings->firstItem() + $loop->index }}
+                        </flux:table.cell>
 
-                        @if ($trainings->hasMorePages())
-                        <button wire:click="nextPage" class="w-10 h-10 flex items-center justify-center bg-white text-slate-600 rounded-2xl border border-slate-200 hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-95">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
-                        @else
-                        <span class="w-10 h-10 flex items-center justify-center bg-white text-slate-200 rounded-2xl border border-slate-100 cursor-not-allowed">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
-                            </svg>
-                        </span>
-                        @endif
-                    </div>
-                </div>
-            </div>
-        </aside>
-
-        {{-- MODAL FORM --}}
-        @if($showFormModal)
-        <div class="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/70 backdrop-blur-md animate-in fade-in duration-300">
-            <div class="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
-
-                {{-- HEADER MODAL --}}
-                <div class="p-8 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-                    <div class="flex items-center gap-5">
-                        <div class="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-blue-200 text-2xl font-bold italic underline">T</div>
-                        <div>
-                            <h3 class="font-black text-2xl text-slate-800 tracking-tighter uppercase italic">{{ $training_id ? 'Update Data Training' : 'Input Training Baru' }}</h3>
-                            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-[0.3em] italic">Human Capital System • Jembo Training</p>
-                        </div>
-                    </div>
-                    <button wire:click="$set('showFormModal', false)" class="w-12 h-12 flex items-center justify-center rounded-2xl bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all font-bold shadow-inner">✕</button>
-                </div>
-
-                <form wire:submit.prevent="save" class="flex flex-col flex-1 overflow-hidden">
-                    {{-- BODY MODAL --}}
-                    <div class="p-10 grid grid-cols-1 lg:grid-cols-12 gap-12 overflow-y-auto custom-scrollbar">
-
-                        {{-- SISI KIRI DETAIL (7/12) --}}
-                        <div class="lg:col-span-7 space-y-8">
-                            <div>
-                                <label class="block text-[10px] font-black text-slate-400 mb-2 tracking-widest uppercase italic">Training Title</label>
-                                <input type="text" wire:model="title" class="w-full bg-slate-50 border-none rounded-2xl p-4 focus:ring-4 focus:ring-blue-100 transition-all text-sm font-bold uppercase italic shadow-inner">
+                        <flux:table.cell>
+                            <div class="font-semibold uppercase text-xs leading-snug">
+                                {{ $isGrouped ? $training->trainingGroup->title : $training->title }}
                             </div>
 
-                            {{-- Kolom 2: Trainer (Disederhanakan) --}}
-                            <div class="space-y-2">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-[10px] font-black text-slate-400 tracking-widest uppercase italic">Trainer</label>
-                                    <div class="flex bg-slate-100 p-1 rounded-xl gap-1">
-                                        <button type="button"
-                                            wire:click="$set('trainer_type', 'internal')"
-                                            class="px-3 py-1 text-[8px] font-black uppercase rounded-lg transition-all {{ $trainer_type === 'internal' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
-                                            Internal
-                                        </button>
-                                        <button type="button"
-                                            wire:click="$set('trainer_type', 'external')"
-                                            class="px-3 py-1 text-[8px] font-black uppercase rounded-lg transition-all {{ $trainer_type === 'external' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600' }}">
-                                            External
-                                        </button>
-                                    </div>
-                                </div>
+                            <div class="mt-2 flex flex-wrap gap-1.5">
+                                @if ($hasMultipleSessions)
+                                    <flux:badge size="sm" color="amber">
+                                        {{ $sessionCount }} sesi
+                                    </flux:badge>
+                                @endif
 
-                                @if($trainer_type === 'internal')
-                                <select wire:model="trainer_employee_id" class="w-full bg-blue-50/50 border border-blue-100 rounded-2xl p-4 text-[11px] font-bold uppercase italic shadow-sm outline-none focus:ring-2 focus:ring-blue-100">
-                                    <option value="">-- PILIH --</option>
-                                    @foreach($employees_list as $emp)
-                                    <option value="{{ $emp->nik }} - {{ $emp->name }}">{{ strtoupper($emp->name) }}</option>
-                                    @endforeach
-                                </select>
-                                @else
-                                <input type="text" wire:model="trainer_external_name" placeholder="NAMA TRAINER..."
-                                    class="w-full bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 text-[11px] font-bold uppercase italic shadow-sm outline-none focus:ring-2 focus:ring-emerald-100">
+                                <flux:badge size="sm" color="zinc">
+                                    {{ $training->held_by ?: '-' }}
+                                </flux:badge>
+
+                                @if ($training->fee && (float) $training->fee > 0)
+                                    <flux:badge size="sm" color="blue">
+                                        Rp{{ number_format((float) $training->fee, 0, ',', '.') }}
+                                    </flux:badge>
                                 @endif
                             </div>
+                        </flux:table.cell>
 
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <label class="block text-[10px] font-black text-slate-400 mb-2 tracking-widest uppercase italic">Held By</label>
-                                    <input type="text" wire:model="held_by" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold uppercase italic shadow-inner">
+                        <flux:table.cell>
+                            @if ($firstDate)
+                                <div class="text-xs font-semibold uppercase">
+                                    {{ \Carbon\Carbon::parse($firstDate)->format('d M Y') }}
+
+                                    @if (
+                                        $lastDate &&
+                                            \Carbon\Carbon::parse($lastDate)->format('Y-m-d') !== \Carbon\Carbon::parse($firstDate)->format('Y-m-d'))
+                                        -
+                                        {{ \Carbon\Carbon::parse($lastDate)->format('d M Y') }}
+                                    @endif
                                 </div>
-                                <div>
-                                    <label class="block text-[10px] font-black text-slate-400 mb-2 tracking-widest uppercase italic">Certification</label>
-                                    <select wire:model="is_certified" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold uppercase italic shadow-inner cursor-pointer">
-                                        <option value="No">NO (TANPA SERTIFIKAT)</option>
-                                        <option value="Yes">YES (ADA SERTIFIKAT)</option>
-                                    </select>
+
+                                <flux:text class="mt-1 text-xs">
+                                    {{ $hasMultipleSessions
+                                        ? $sessionCount . ' jadwal pelaksanaan'
+                                        : ($training->start_time ? \Carbon\Carbon::parse($training->start_time)->format('H:i') : '--:--') .
+                                            ' - ' .
+                                            ($training->finish_time ? \Carbon\Carbon::parse($training->finish_time)->format('H:i') : '--:--') }}
+                                </flux:text>
+                            @else
+                                <span class="text-xs text-zinc-400">-</span>
+                            @endif
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            @if ($hasMultipleSessions)
+                                <div class="font-semibold uppercase text-xs">
+                                    Trainer per sesi
                                 </div>
+
+                                <flux:text class="mt-1 text-xs">
+                                    Buka detail sesi untuk melihat trainer.
+                                </flux:text>
+                            @elseif ($training->trainer_employee_id)
+                                <div class="font-semibold uppercase text-xs">
+                                    {{ $training->trainerInternal->name ?? 'Internal Trainer' }} -
+                                    {{ $training->trainerInternal->nik ?? 'NIK' }}
+                                </div>
+
+                                <flux:badge size="sm" color="emerald" class="mt-2">
+                                    Internal
+                                </flux:badge>
+                            @elseif ($training->trainer_external_name)
+                                <div class="font-semibold uppercase text-xs">
+                                    {{ $training->trainer_external_name }}
+                                </div>
+
+                                <flux:badge size="sm" color="sky" class="mt-2">
+                                    External
+                                </flux:badge>
+                            @else
+                                <flux:badge size="sm" color="zinc">
+                                    No Trainer
+                                </flux:badge>
+                            @endif
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            <div class="flex flex-wrap gap-1.5">
+                                @if ($training->activity_name)
+                                    <flux:badge size="sm" color="blue">
+                                        {{ $training->activity_name }}
+                                    </flux:badge>
+                                @endif
+
+                                @if ($training->skill_name)
+                                    <flux:badge size="sm" color="indigo">
+                                        {{ $training->skill_name }}
+                                    </flux:badge>
+                                @endif
                             </div>
+                        </flux:table.cell>
 
-                            <div class="grid grid-cols-2 gap-6">
-                                {{-- Kolom 1: Activities --}}
-                                <div>
-                                    <label class="block text-[10px] font-black text-slate-400 mb-2 tracking-widest uppercase italic">Activities</label>
-                                    <select wire:model="activity_name" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold uppercase italic shadow-inner outline-none focus:ring-2 focus:ring-blue-100">
-                                        <option value="">PILIH</option>
-                                        <option value="External">EXTERNAL</option>
-                                        <option value="Internal">INTERNAL</option>
-                                    </select>
-                                </div>
+                        <flux:table.cell align="center">
+                            <flux:badge size="sm" color="zinc">
+                                {{ $totalParticipants }} peserta
+                            </flux:badge>
 
+                            @if ($isSingleSession)
+                                @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+                                    <flux:button type="button" variant="ghost" size="sm" icon="users"
+                                        wire:click="openParticipantsModal({{ $training->id }})" inset="top bottom"
+                                        class="mt-1 text-slate-500 hover:text-emerald-600" title="Kelola Peserta" />
+                                @endcan
+                            @endif
+                        </flux:table.cell>
 
+                        <flux:table.cell align="center">
+                            <div class="flex flex-col items-center gap-1.5">
+                                <flux:badge size="sm"
+                                    :color="$training->is_certified === 'Yes'
+                                                                                                                            ? 'emerald'
+                                                                                                                            : 'zinc'">
+                                    {{ $training->is_certified === 'Yes' ? 'Certified' : 'No Cert' }}
+                                </flux:badge>
 
-                                {{-- Kolom 3: Skill Type --}}
-                                <div>
-                                    <label class="block text-[10px] font-black text-slate-400 mb-2 tracking-widest uppercase italic">Skill Type</label>
-                                    <select wire:model="skill_name" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold uppercase italic shadow-inner outline-none focus:ring-2 focus:ring-blue-100">
-                                        <option value="">PILIH</option>
-                                        <option value="Hard Skill">HARD SKILL</option>
-                                        <option value="Soft Skill">SOFT SKILL</option>
-                                    </select>
-                                </div>
+                                @if ($training->is_certified === 'Yes')
+                                    @if ($training->certificateTemplate)
+                                        <flux:badge size="sm"
+                                            :color="
+                                                                                                                                                            $training
+                                                                                                                                                                ->certificateTemplate
+                                                                                                                                                                ->archived_at
+                                                                                                                                                                || $training
+                                                                                                                                                                    ->certificateTemplate
+                                                                                                                                                                    ->trashed()
+                                                                                                                                                                ? 'amber'
+                                                                                                                                                                : 'blue'
+                                                                                                                                                        ">
+                                            {{ $training->certificateTemplate->name }}
+                                        </flux:badge>
+                                    @else
+                                        <flux:badge size="sm" color="amber">
+                                            Template belum dipilih
+                                        </flux:badge>
+                                    @endif
+                                @endif
                             </div>
+                        </flux:table.cell>
 
-                            <div class="p-8 bg-slate-50/50 rounded-[2.5rem] border border-dashed border-slate-200 space-y-6">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div class="col-span-1 md:col-span-2">
-                                        <label class="block text-[10px] font-black text-slate-400 mb-2 uppercase italic tracking-widest">Training Date</label>
-                                        <input type="date" wire:model="training_date" class="w-full bg-white border-none rounded-2xl p-4 text-sm font-bold shadow-sm focus:ring-4 focus:ring-blue-100">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-black text-emerald-500 mb-2 uppercase italic tracking-widest">Start Time</label>
-                                        <input type="time" wire:model="start_time" class="w-full bg-white border-none rounded-2xl p-4 text-sm font-bold shadow-sm italic">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-black text-rose-500 mb-2 uppercase italic tracking-widest">Finish Time</label>
-                                        <input type="time" wire:model="finish_time" class="w-full bg-white border-none rounded-2xl p-4 text-sm font-bold shadow-sm italic">
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-black text-slate-400 mb-2 uppercase italic tracking-widest">Fee / Cost (RP)</label>
-                                    <input type="number" wire:model="fee" class="w-full bg-white border-none rounded-2xl p-4 text-sm font-black text-blue-600 shadow-sm italic">
-                                </div>
+                        <flux:table.cell>
+                            <div class="flex items-center justify-center gap-1">
+                                @if ($isGrouped)
+                                    @can(\App\Support\Auth\Permissions::CREATE_TRAINING)
+                                        <flux:button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="plus"
+                                            wire:click="$dispatch(
+                                                'open-training-batch-form',
+                                                {
+                                                    trainingGroupId:
+                                                        {{ (int) $training->training_group_id }}
+                                                }
+                                            )"
+                                            inset="top bottom"
+                                            class="text-slate-500 hover:text-emerald-600"
+                                            title="Tambah Sesi"
+                                        />
+                                    @endcan
+                                @else
+                                    @can(\App\Support\Auth\Permissions::CREATE_TRAINING)
+                                        @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+                                            <flux:button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                icon="plus"
+                                                wire:click="$dispatch(
+                                                    'open-training-batch-form',
+                                                    {
+                                                        standaloneTrainingId:
+                                                            {{ (int) $training->id }}
+                                                    }
+                                                )"
+                                                inset="top bottom"
+                                                class="text-slate-500 hover:text-emerald-600"
+                                                title="Tambah Sesi"
+                                            />
+                                        @endcan
+                                    @endcan
+                                @endif
+
+                                @if ($hasMultipleSessions)
+                                    <flux:button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        :icon="$isExpanded ? 'chevron-up' : 'chevron-down'"
+                                        wire:click="toggleTrainingGroup({{ $training->training_group_id }})"
+                                        inset="top bottom"
+                                        class="text-slate-500 hover:text-blue-600"
+                                        :title="$isExpanded ? 'Tutup Detail Sesi' : 'Lihat Detail Sesi'"
+                                    />
+                                @else
+                                    @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+                                        <flux:button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="pencil-square"
+                                            wire:click="$dispatch(
+                                                'open-training-batch-form',
+                                                {
+                                                    trainingId:
+                                                        {{ (int) $training->id }}
+                                                }
+                                            )"
+                                            inset="top bottom"
+                                            class="text-slate-500 hover:text-blue-600"
+                                            title="Edit Training"
+                                        />
+                                    @endcan
+
+                                    @can(\App\Support\Auth\Permissions::DELETE_TRAINING)
+                                        <flux:modal.trigger :name="'delete-training-'.$training->id">
+                                            <flux:button
+                                                variant="ghost"
+                                                size="sm"
+                                                icon="trash"
+                                                inset="top bottom"
+                                                class="text-slate-500 hover:text-rose-600"
+                                                title="Hapus Training"
+                                            />
+                                        </flux:modal.trigger>
+                                    @endcan
+                                @endif
                             </div>
-                        </div>
+                        </flux:table.cell>
+                    </flux:table.row>
 
-                        {{-- SISI KANAN PESERTA (5/12) --}}
-                        <div class="lg:col-span-5 flex flex-col">
-                            <div class="bg-emerald-50 rounded-[2.5rem] border border-emerald-100 p-6 flex flex-col shadow-lg shadow-emerald-100/20 max-h-[500px]">
+                    @if ($hasMultipleSessions && $isExpanded)
+                        @foreach ($batchRows as $batch)
+                            <flux:table.row :key="'training-batch-'.$batch->id"
+                                class="bg-zinc-50/60 dark:bg-zinc-900/40">
+                                <flux:table.cell class="text-center">
+                                    <span class="sr-only">Batch</span>
+                                </flux:table.cell>
 
-                                {{-- Header Peserta --}}
-                                <div class="flex items-center justify-between mb-4 px-2">
-                                    <div>
-                                        <h4 class="font-black text-sm text-emerald-900 uppercase italic tracking-tighter">Peserta</h4>
-                                        <p class="text-[9px] text-emerald-600 font-bold uppercase italic">{{ count($selected_participants) }} Terpilih</p>
-                                    </div>
+                                <flux:table.cell>
+                                    <div class="flex items-start gap-2 pl-2">
+                                        <flux:badge size="sm" color="amber" class="shrink-0">
+                                            Sesi {{ $batch->batch_number ?: $loop->iteration }}
+                                        </flux:badge>
 
-                                    {{-- Search Box --}}
-                                    <div class="relative w-36">
-                                        <input type="text" wire:model.live.debounce.300ms="search_participant" placeholder="CARI..."
-                                            class="w-full pl-8 pr-3 py-2 bg-white border-none rounded-xl text-[9px] font-bold uppercase shadow-sm focus:ring-2 focus:ring-emerald-400 italic">
-                                        <span class="absolute left-2.5 top-2 text-emerald-300 text-xs">🔍</span>
+                                        <div
+                                            class="border-l-2 border-amber-300 pl-3
+                                                   dark:border-amber-700">
+                                            <div class="font-semibold uppercase text-xs">
+                                                {{ $batch->batch_name ?: 'Sesi ' . $batch->batch_number }}
+                                            </div>
 
-                                        @if(count($this->filteredEmployees) > 0)
-                                        <div class="absolute z-[120] w-64 right-0 bg-white mt-2 rounded-xl shadow-2xl border border-emerald-100 overflow-hidden ring-4 ring-emerald-50">
-                                            @foreach($this->filteredEmployees as $emp)
-                                            <button type="button" wire:click="addSelectedParticipant({{ $emp->id }})"
-                                                class="w-full text-left p-3 hover:bg-emerald-50 flex justify-between items-center transition-colors border-b border-emerald-50 last:border-none group">
-                                                <div>
-                                                    <div class="font-bold text-slate-700 text-[9px] uppercase">{{ $emp->name }}</div>
-                                                    <div class="text-[8px] text-slate-400 font-mono">{{ $emp->nik }}</div>
-                                                </div>
-                                                <span class="text-emerald-500 font-black text-[8px]">+</span>
-                                            </button>
-                                            @endforeach
                                         </div>
+                                    </div>
+                                </flux:table.cell>
+
+                                <flux:table.cell>
+                                    <div class="text-xs font-semibold uppercase">
+                                        {{ $batch->training_date ? \Carbon\Carbon::parse($batch->training_date)->format('d M Y') : '-' }}
+                                    </div>
+
+                                    <flux:text class="mt-1 text-xs tabular-nums">
+                                        {{ $batch->start_time ? \Carbon\Carbon::parse($batch->start_time)->format('H:i') : '--:--' }}
+                                        -
+                                        {{ $batch->finish_time ? \Carbon\Carbon::parse($batch->finish_time)->format('H:i') : '--:--' }}
+                                    </flux:text>
+                                </flux:table.cell>
+
+                                <flux:table.cell>
+                                    @if ($batch->trainer_employee_id)
+                                        <div class="font-semibold uppercase text-xs">
+                                            {{ $batch->trainerInternal->name ?? 'Internal Trainer' }} -
+                                            {{ $batch->trainerInternal->nik ?? 'NIK' }}
+                                        </div>
+
+                                        <flux:badge size="sm" color="emerald" class="mt-2">
+                                            Internal
+                                        </flux:badge>
+                                    @elseif ($batch->trainer_external_name)
+                                        <div class="font-semibold uppercase text-xs">
+                                            {{ $batch->trainer_external_name }}
+                                        </div>
+
+                                        <flux:badge size="sm" color="sky" class="mt-2">
+                                            External
+                                        </flux:badge>
+                                    @else
+                                        <flux:badge size="sm" color="zinc">
+                                            No Trainer
+                                        </flux:badge>
+                                    @endif
+                                </flux:table.cell>
+
+                                <flux:table.cell>
+                                    <flux:text class="text-xs">
+                                        Mengikuti kategori utama
+                                    </flux:text>
+                                </flux:table.cell>
+
+                                <flux:table.cell align="center">
+                                    <div class="flex items-center justify-center gap-2">
+                                        <flux:badge size="sm" color="zinc">
+                                            {{ $batch->participants_count }} peserta
+                                        </flux:badge>
+
+                                        @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+                                            <flux:button type="button" variant="ghost" size="sm" icon="users"
+                                                wire:click="openParticipantsModal({{ $batch->id }})"
+                                                inset="top bottom" class="text-slate-500 hover:text-emerald-600"
+                                                title="Kelola Peserta Sesi" />
+                                        @endcan
+                                    </div>
+                                </flux:table.cell>
+
+                                <flux:table.cell align="center">
+                                    <div class="flex flex-col items-center gap-1.5">
+                                        <flux:badge size="sm"
+                                            :color="$batch->is_certified === 'Yes'
+                                                            ? 'emerald'
+                                                            : 'zinc'">
+                                            {{ $batch->is_certified === 'Yes' ? 'Certified' : 'No Cert' }}
+                                        </flux:badge>
+
+                                        @if ($batch->is_certified === 'Yes')
+                                            @if ($batch->certificateTemplate)
+                                                <flux:badge size="sm"
+                                                    :color="
+                                                                            $batch
+                                                                                ->certificateTemplate
+                                                                                ->archived_at
+                                                                                || $batch
+                                                                                    ->certificateTemplate
+                                                                                    ->trashed()
+                                                                                ? 'amber'
+                                                                                : 'blue'
+                                                                        ">
+                                                    {{ $batch->certificateTemplate->name }}
+                                                </flux:badge>
+                                            @else
+                                                <flux:badge size="sm" color="amber">
+                                                    Template belum dipilih
+                                                </flux:badge>
+                                            @endif
+                                        @endif
+                                    </div>
+                                </flux:table.cell>
+
+                                <flux:table.cell>
+                                    <div class="flex items-center justify-center gap-1">
+                                        @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+                                            <flux:button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                icon="arrow-uturn-left"
+                                                wire:click="prepareRemoveTrainingFromGroup({{ $batch->id }})"
+                                                inset="top bottom"
+                                                class="text-slate-500 hover:text-amber-600"
+                                                title="Keluarkan dari Training Group"
+                                            />
+
+                                            <flux:button type="button" variant="ghost" size="sm"
+                                                icon="pencil-square"
+                                                wire:click="$dispatch(
+                                                    'open-training-batch-form',
+                                                    {
+                                                        trainingId:
+                                                            {{ (int) $batch->id }}
+                                                    }
+                                                )"
+                                                inset="top bottom" class="text-slate-500 hover:text-blue-600"
+                                                title="Edit Sesi" />
+                                        @endcan
+
+                                        @can(\App\Support\Auth\Permissions::DELETE_TRAINING)
+                                            <flux:modal.trigger :name="'delete-training-'.$batch->id">
+                                                <flux:button variant="ghost" size="sm" icon="trash"
+                                                    inset="top bottom" class="text-slate-500 hover:text-rose-600"
+                                                    title="Hapus Batch" />
+                                            </flux:modal.trigger>
+                                        @endcan
+                                    </div>
+                                </flux:table.cell>
+                            </flux:table.row>
+                        @endforeach
+                    @endif
+                @empty
+                    <flux:table.row>
+                        <flux:table.cell
+                            colspan="{{ $legacy_grouping_mode ? 9 : 8 }}"
+                            class="text-center py-16 font-black uppercase opacity-40"
+                        >
+                            Belum Ada Data Training
+                        </flux:table.cell>
+                    </flux:table.row>
+                @endforelse
+            </flux:table.rows>
+        </flux:table>
+
+        @foreach ($trainings as $summaryTraining)
+            @php
+                $summaryIsGrouped =
+                    $summaryTraining->training_group_id !== null
+                    && $summaryTraining->trainingGroup !== null;
+
+                $summarySessions = $summaryIsGrouped
+                    ? $summaryTraining->trainingGroup->trainings
+                    : collect([$summaryTraining]);
+
+                $summaryHasMultipleSessions =
+                    $summaryIsGrouped && $summarySessions->count() > 1;
+
+                $visibleDeleteRows = $summaryHasMultipleSessions
+                    ? (
+                        in_array(
+                            (int) $summaryTraining->training_group_id,
+                            $expanded_training_groups,
+                            true
+                        )
+                            ? $summarySessions
+                            : collect()
+                    )
+                    : collect([$summaryTraining]);
+
+                $showDeleteSessionName =
+                    $summaryHasMultipleSessions;
+            @endphp
+
+            @foreach ($visibleDeleteRows as $deleteTrainingRow)
+                @can(\App\Support\Auth\Permissions::DELETE_TRAINING)
+                    <flux:modal :name="'delete-training-'.$deleteTrainingRow->id" class="min-w-[22rem]">
+                        <div class="space-y-6">
+                            <div>
+                                <flux:heading size="lg" class="text-rose-600 dark:text-rose-400">
+                                    {{ $showDeleteSessionName ? 'Hapus sesi?' : 'Hapus training?' }}
+                                </flux:heading>
+
+                                <flux:text class="mt-2">
+                                    Anda akan menghapus
+                                    <span
+                                        class="font-semibold text-zinc-900
+                                                 dark:text-zinc-100">
+                                        {{ $deleteTrainingRow->title }}
+                                        @if ($showDeleteSessionName && $deleteTrainingRow->batch_name)
+                                            — {{ $deleteTrainingRow->batch_name }}
+                                        @endif
+                                    </span>.
+                                    <br>
+                                    Data peserta pada {{ $showDeleteSessionName ? 'sesi' : 'training' }} ini juga akan dilepas.
+                                </flux:text>
+                            </div>
+
+                            <div class="flex gap-2">
+                                <flux:spacer />
+
+                                <flux:modal.close>
+                                    <flux:button variant="ghost">
+                                        Batal
+                                    </flux:button>
+                                </flux:modal.close>
+
+                                <flux:button type="button" variant="danger"
+                                    wire:click="deleteTraining({{ $deleteTrainingRow->id }})"
+                                    wire:loading.attr="disabled"
+                                    wire:target="deleteTraining({{ $deleteTrainingRow->id }})">
+                                    Hapus Training
+                                </flux:button>
+                            </div>
+                        </div>
+                    </flux:modal>
+                @endcan
+            @endforeach
+        @endforeach
+    </flux:card>
+
+    @can(\App\Support\Auth\Permissions::CREATE_TRAINING)
+        @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+            <flux:modal
+                wire:model.self="show_convert_group_modal"
+                wire:close="closeConvertTrainingGroupModal"
+                class="md:w-[48rem]"
+                :dismissible="false"
+            >
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <flux:heading size="lg">
+                                Convert ke Training Group
+                            </flux:heading>
+
+                            <flux:badge size="sm" color="amber">
+                                {{ count($conversion_review_rows) }} sesi
+                            </flux:badge>
+                        </div>
+
+                        <flux:text class="mt-1 text-sm">
+                            Data training, peserta, trainer, score, biaya, dan sertifikat tetap berada pada record sesi masing-masing.
+                        </flux:text>
+                    </div>
+
+                    <flux:field>
+                        <flux:label>
+                            Nama Training Group
+                        </flux:label>
+
+                        <flux:input
+                            wire:model="convert_group_title"
+                            placeholder="Contoh: Teori Mesin Drawing"
+                            maxlength="255"
+                            autofocus
+                        />
+
+                        <flux:error name="convert_group_title" />
+                        <flux:error name="selected_standalone_training_ids" />
+                    </flux:field>
+
+                    @if ($conversion_warnings !== [])
+                        <flux:callout icon="exclamation-triangle" color="amber">
+                            <flux:callout.heading>
+                                Periksa perbedaan data
+                            </flux:callout.heading>
+
+                            <flux:callout.text>
+                                <ul class="list-disc space-y-1 pl-4 text-xs">
+                                    @foreach ($conversion_warnings as $warning)
+                                        <li>{{ $warning }}</li>
+                                    @endforeach
+                                </ul>
+                            </flux:callout.text>
+                        </flux:callout>
+                    @endif
+
+                    <div class="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+                        <div class="border-b border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/70">
+                            <div class="text-xs font-semibold uppercase text-zinc-500">
+                                Urutan sesi berdasarkan tanggal dan waktu
+                            </div>
+                        </div>
+
+                        <div class="max-h-[22rem] divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800">
+                            @foreach ($conversion_review_rows as $reviewRow)
+                                <div
+                                    wire:key="conversion-review-{{ $reviewRow['id'] }}"
+                                    class="flex gap-3 px-4 py-3"
+                                >
+                                    <div
+                                        class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-xs font-semibold tabular-nums text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                    >
+                                        {{ $loop->iteration }}
+                                    </div>
+
+                                    <div class="min-w-0 flex-1">
+                                        <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                            {{ $reviewRow['title'] }}
+                                        </div>
+
+                                        <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+                                            <span>
+                                                {{ $reviewRow['training_date']
+                                                    ? \Carbon\Carbon::parse($reviewRow['training_date'])->format('d M Y')
+                                                    : 'Tanpa tanggal' }}
+                                            </span>
+
+                                            <span class="tabular-nums">
+                                                {{ $reviewRow['start_time'] ?: '--:--' }}
+                                                –
+                                                {{ $reviewRow['finish_time'] ?: '--:--' }}
+                                            </span>
+
+                                            <span>
+                                                {{ $reviewRow['participants_count'] }} peserta
+                                            </span>
+
+                                            @if ($reviewRow['held_by'] !== '')
+                                                <span>
+                                                    {{ $reviewRow['held_by'] }}
+                                                </span>
+                                            @endif
+                                        </div>
+
+                                        @if ($reviewRow['activity_name'] !== '' || $reviewRow['skill_name'] !== '')
+                                            <div class="mt-2 flex flex-wrap gap-1.5">
+                                                @if ($reviewRow['activity_name'] !== '')
+                                                    <flux:badge size="sm" color="blue">
+                                                        {{ $reviewRow['activity_name'] }}
+                                                    </flux:badge>
+                                                @endif
+
+                                                @if ($reviewRow['skill_name'] !== '')
+                                                    <flux:badge size="sm" color="indigo">
+                                                        {{ $reviewRow['skill_name'] }}
+                                                    </flux:badge>
+                                                @endif
+                                            </div>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <flux:callout color="blue">
+                        <flux:callout.text class="text-xs">
+                            Konversi tidak menghapus atau menggabungkan record training. Sistem hanya membuat satu Training Group, menghubungkan training yang dipilih, lalu memberi nomor Sesi 1, Sesi 2, dan seterusnya.
+                        </flux:callout.text>
+                    </flux:callout>
+
+                    <div class="flex gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+                        <flux:spacer />
+
+                        <flux:button
+                            type="button"
+                            wire:click="closeConvertTrainingGroupModal"
+                            variant="ghost"
+                            wire:loading.attr="disabled"
+                            wire:target="convertSelectedTrainingsToGroup"
+                        >
+                            Batal
+                        </flux:button>
+
+                        <flux:button
+                            type="button"
+                            wire:click="convertSelectedTrainingsToGroup"
+                            wire:loading.attr="disabled"
+                            wire:target="convertSelectedTrainingsToGroup"
+                            variant="primary"
+                            icon="check"
+                        >
+                            <span wire:loading.remove wire:target="convertSelectedTrainingsToGroup">
+                                Convert Training Group
+                            </span>
+
+                            <span wire:loading wire:target="convertSelectedTrainingsToGroup">
+                                Memproses...
+                            </span>
+                        </flux:button>
+                    </div>
+                </div>
+            </flux:modal>
+        @endcan
+    @endcan
+
+    @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+        <flux:modal
+            wire:model.self="show_remove_from_group_modal"
+            wire:close="closeRemoveTrainingFromGroupModal"
+            class="md:w-[32rem]"
+            :dismissible="false"
+        >
+            <div class="space-y-6">
+                <div>
+                    <flux:heading size="lg">
+                        Keluarkan sesi dari Training Group?
+                    </flux:heading>
+
+                    <flux:text class="mt-2">
+                        <span class="font-medium text-zinc-900 dark:text-zinc-100">
+                            {{ $remove_from_group_session_label }}
+                        </span>
+                        akan dikeluarkan dari
+                        <span class="font-medium text-zinc-900 dark:text-zinc-100">
+                            {{ $remove_from_group_training_title }}
+                        </span>
+                        dan kembali menjadi training standalone.
+                    </flux:text>
+                </div>
+
+                <flux:callout icon="exclamation-triangle" color="amber">
+                    <flux:callout.text class="text-xs">
+                        Peserta, trainer, tanggal, score, biaya, dan sertifikat tidak berubah. Nomor sesi yang tersisa akan dirapikan otomatis.
+                    </flux:callout.text>
+                </flux:callout>
+
+                <flux:error name="remove_from_group_training_id" />
+
+                <div class="flex gap-2">
+                    <flux:spacer />
+
+                    <flux:button
+                        type="button"
+                        wire:click="closeRemoveTrainingFromGroupModal"
+                        variant="ghost"
+                        wire:loading.attr="disabled"
+                        wire:target="confirmRemoveTrainingFromGroup"
+                    >
+                        Batal
+                    </flux:button>
+
+                    <flux:button
+                        type="button"
+                        wire:click="confirmRemoveTrainingFromGroup"
+                        wire:loading.attr="disabled"
+                        wire:target="confirmRemoveTrainingFromGroup"
+                        variant="primary"
+                        icon="arrow-uturn-left"
+                    >
+                        Keluarkan Sesi
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
+    @endcan
+
+    @can(\App\Support\Auth\Permissions::UPDATE_TRAINING)
+        <flux:modal
+            wire:model.self="show_participant_modal"
+            wire:close="closeParticipantsModal"
+            class="w-[98vw] max-w-[98vw] xl:w-[90rem] !max-w-[90rem]"
+            :dismissible="false"
+        >
+            <div class="flex h-[88vh] min-h-0 flex-col">
+                <div class="shrink-0 border-b border-zinc-200 pb-4 dark:border-zinc-800">
+                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div class="min-w-0">
+                            <flux:heading
+                                size="lg"
+                                class="flex items-center gap-2 font-semibold"
+                            >
+                                <flux:icon.users class="h-5 w-5 shrink-0 text-emerald-600" />
+                                Kelola peserta training
+                            </flux:heading>
+
+                            <div class="mt-2 flex flex-wrap items-center gap-2">
+                                <flux:badge size="sm" color="blue">
+                                    {{ $participant_training_title ?: 'Training belum dipilih' }}
+                                </flux:badge>
+
+                                <flux:badge size="sm" color="emerald">
+                                    {{ count($selected_participants) }} peserta
+                                </flux:badge>
+
+                                @if ($this->participantHasChanges)
+                                    <flux:badge size="sm" color="amber">
+                                        Perubahan belum disimpan
+                                    </flux:badge>
+                                @endif
+                            </div>
+                        </div>
+
+                        @if ($this->participantHasChanges)
+                            <div class="flex flex-wrap items-center gap-2">
+                                @if ($this->participantChangeSummary['added'] > 0)
+                                    <flux:badge size="sm" color="emerald">
+                                        +{{ $this->participantChangeSummary['added'] }} ditambahkan
+                                    </flux:badge>
+                                @endif
+
+                                @if ($this->participantChangeSummary['removed'] > 0)
+                                    <flux:badge size="sm" color="rose">
+                                        -{{ $this->participantChangeSummary['removed'] }} dikeluarkan
+                                    </flux:badge>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                </div>
+
+                <div class="min-h-0 flex-1 overflow-y-auto py-5 xl:overflow-hidden">
+                    <div class="grid min-h-0 grid-cols-1 gap-5 xl:h-full xl:grid-cols-2">
+                        <section class="flex h-[34rem] min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 xl:h-full">
+                            <div class="shrink-0 space-y-4 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <flux:heading size="sm" class="font-semibold">
+                                            Karyawan tersedia
+                                        </flux:heading>
+
+                                        <flux:text class="mt-1 text-xs">
+                                            Pilih maksimal 20 karyawan pada setiap halaman.
+                                        </flux:text>
+                                    </div>
+
+                                    <flux:badge size="sm" color="zinc">
+                                        {{ $this->availableEmployees->count() }}
+                                        dari
+                                        {{ $this->availableEmployeeCount }}
+                                    </flux:badge>
+                                </div>
+
+                                <flux:input
+                                    wire:model.live.debounce.300ms="participant_search"
+                                    placeholder="Cari nama atau NIK"
+                                    icon="magnifying-glass"
+                                    clearable
+                                    size="sm"
+                                    class="text-xs"
+                                />
+
+                                <div class="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                                    <flux:field>
+                                        <flux:label class="text-xs font-medium">
+                                            Department
+                                        </flux:label>
+
+                                        <flux:select
+                                            wire:model.live="participant_department_id"
+                                            size="sm"
+                                            placeholder="Semua department"
+                                            class="text-xs"
+                                        >
+                                            <flux:select.option value="">
+                                                Semua department
+                                            </flux:select.option>
+
+                                            @foreach ($departments as $department)
+                                                <flux:select.option value="{{ $department->id }}">
+                                                    {{ $department->org_name }}
+                                                </flux:select.option>
+                                            @endforeach
+                                        </flux:select>
+                                    </flux:field>
+
+                                    <flux:field>
+                                        <flux:label class="text-xs font-medium">
+                                            Position
+                                        </flux:label>
+
+                                        <flux:select
+                                            wire:model.live="participant_position_id"
+                                            size="sm"
+                                            placeholder="Semua position"
+                                            class="text-xs"
+                                        >
+                                            <flux:select.option value="">
+                                                Semua position
+                                            </flux:select.option>
+
+                                            @foreach ($positions as $position)
+                                                <flux:select.option value="{{ $position->id }}">
+                                                    {{ $position->position_name }}
+                                                </flux:select.option>
+                                            @endforeach
+                                        </flux:select>
+                                    </flux:field>
+
+                                    <div class="flex">
+                                        @if (
+                                            $participant_search !== ''
+                                            || $participant_department_id !== ''
+                                            || $participant_position_id !== ''
+                                        )
+                                            <flux:button
+                                                type="button"
+                                                wire:click="clearParticipantFilters"
+                                                variant="subtle"
+                                                size="sm"
+                                                icon="x-mark"
+                                            >
+                                                Reset
+                                            </flux:button>
+                                        @else
+                                            <div class="hidden h-8 w-[72px] sm:block"></div>
                                         @endif
                                     </div>
                                 </div>
 
-                                <div class="bg-white rounded-[1.5rem] border border-emerald-100 shadow-inner overflow-hidden flex-1">
-                                    <div class="max-h-96 overflow-y-auto custom-scrollbar">
-                                        <table class="w-full text-left text-[10px]">
-                                            <thead class="bg-indigo-600 text-white font-bold uppercase sticky top-0 z-10 italic">
-                                                <tr>
-                                                    <th class="px-4 py-2.5">NAMA KARYAWAN</th>
-                                                    <th class="px-4 py-2.5 text-center">AKSI</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="divide-y divide-emerald-50">
-                                                @forelse($selected_participants as $p)
-                                                <tr class="hover:bg-emerald-50/60 transition-colors uppercase italic">
-                                                    <td class="px-5 py-2">
-                                                        <div class="font-black text-slate-700 text-[9px] leading-tight">{{ $p['name'] }}</div>
-                                                        <div class="text-[7px] text-slate-400 font-medium italic uppercase tracking-tighter">
-                                                            {{ $p['org_name'] ?? 'DEPARTEMEN TIDAK DITEMUKAN' }}
-                                                        </div>
-                                                    </td>
-                                                    <td class="px-4 py-2 text-center">
-                                                        <button type="button" wire:click="removeParticipant({{ $p['id'] }})" class="w-6 h-6 rounded-lg bg-rose-100 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center mx-auto shadow-sm">✕</button>
-                                                    </td>
-                                                </tr>
-                                                @empty
-                                                <tr>
-                                                    <td colspan="2" class="p-10 text-center text-emerald-800 font-black opacity-30 italic uppercase">Kosong</td>
-                                                </tr>
-                                                @endforelse
-                                            </tbody>
-                                        </table>
+                                <div class="flex flex-col gap-2 rounded-xl bg-zinc-50 p-2.5 dark:bg-zinc-900/70 sm:flex-row sm:items-center sm:justify-between">
+                                    <div class="flex flex-wrap items-center gap-1">
+                                        <flux:button
+                                            type="button"
+                                            wire:click="selectVisibleAvailableEmployees"
+                                            variant="ghost"
+                                            size="sm"
+                                            :disabled="$this->availableEmployees->isEmpty()"
+                                        >
+                                            Pilih semua
+                                        </flux:button>
+
+                                        @if ($available_employee_ids !== [])
+                                            <flux:button
+                                                type="button"
+                                                wire:click="clearAvailableEmployeeSelection"
+                                                variant="ghost"
+                                                size="sm"
+                                            >
+                                                Clear
+                                            </flux:button>
+                                        @endif
+                                    </div>
+
+                                    <div class="flex flex-wrap gap-2">
+                                        <flux:button
+                                            type="button"
+                                            wire:click="addCheckedParticipants"
+                                            wire:loading.attr="disabled"
+                                            wire:target="addCheckedParticipants"
+                                            variant="primary"
+                                            size="sm"
+                                            icon="user-plus"
+                                            :disabled="$available_employee_ids === []"
+                                        >
+                                            Tambah dipilih ({{ count($available_employee_ids) }})
+                                        </flux:button>
+
+                                        <flux:button
+                                            type="button"
+                                            wire:click="prepareAddAllFilteredParticipants"
+                                            wire:loading.attr="disabled"
+                                            wire:target="prepareAddAllFilteredParticipants"
+                                            variant="filled"
+                                            size="sm"
+                                            icon="users"
+                                            :disabled="$this->availableEmployeeCount === 0"
+                                        >
+                                            Tambah semua hasil
+                                        </flux:button>
                                     </div>
                                 </div>
                             </div>
+
+                            <div
+                                class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                                tabindex="0"
+                                aria-label="Daftar karyawan tersedia"
+                            >
+                                @forelse ($this->availableEmployees as $employee)
+                                    @php
+                                        $availableChecked = in_array(
+                                            (int) $employee->id,
+                                            array_map('intval', $available_employee_ids),
+                                            true
+                                        );
+                                    @endphp
+
+                                    <div
+                                        wire:key="available-employee-{{ $employee->id }}"
+                                        @class([
+                                            'group flex min-w-0 items-center gap-3 border-b border-zinc-100 px-4 py-3 transition last:border-b-0 dark:border-zinc-800',
+                                            'bg-blue-50/70 dark:bg-blue-950/20' => $availableChecked,
+                                            'hover:bg-zinc-50 dark:hover:bg-zinc-900/70' => !$availableChecked,
+                                        ])
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            wire:model.live="available_employee_ids"
+                                            value="{{ $employee->id }}"
+                                            aria-label="Pilih {{ $employee->name }}"
+                                            class="size-4 shrink-0 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                        >
+
+                                        <div class="min-w-0 flex-1">
+                                            <div class="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                                {{ $employee->name }}
+                                            </div>
+
+                                            <div class="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+                                                <flux:badge size="sm" color="blue">
+                                                    {{ $employee->nik ?: '-' }}
+                                                </flux:badge>
+
+                                                <span class="min-w-0 truncate text-xs text-zinc-500">
+                                                    {{ $employee->org_name ?? 'Tanpa department' }}
+                                                </span>
+                                            </div>
+
+                                            <div class="mt-1 truncate text-xs text-zinc-400">
+                                                {{ $employee->position_name ?? '-' }}
+                                            </div>
+                                        </div>
+
+                                        <flux:button
+                                            type="button"
+                                            wire:click="addSelectedParticipant({{ $employee->id }})"
+                                            wire:loading.attr="disabled"
+                                            wire:target="addSelectedParticipant({{ $employee->id }})"
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="arrow-right"
+                                            class="shrink-0"
+                                            title="Tambahkan peserta"
+                                        />
+                                    </div>
+                                @empty
+                                    <div class="flex h-full min-h-[260px] flex-col items-center justify-center gap-3 px-6 text-center">
+                                        <div class="flex size-11 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-900">
+                                            <flux:icon.users class="h-5 w-5 text-zinc-400" />
+                                        </div>
+
+                                        <div>
+                                            <flux:heading size="sm">
+                                                Tidak ada karyawan
+                                            </flux:heading>
+
+                                            <flux:text class="mt-1 max-w-sm text-xs">
+                                                Ubah pencarian atau filter untuk menemukan karyawan lain.
+                                            </flux:text>
+                                        </div>
+                                    </div>
+                                @endforelse
+
+                                <div
+                                    wire:loading.flex
+                                    wire:target="participant_search,participant_department_id,participant_position_id,previousAvailableParticipantPage,nextAvailableParticipantPage"
+                                    class="absolute inset-0 items-center justify-center bg-white/75 dark:bg-zinc-950/75"
+                                >
+                                    <span class="size-6 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-800 dark:border-zinc-700 dark:border-t-white"></span>
+                                </div>
+                            </div>
+
+                            <div class="shrink-0 border-t border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+                                <div class="flex items-center justify-between gap-3">
+                                    <flux:text class="text-xs">
+                                        Halaman {{ $available_participant_page }}
+                                        dari {{ $this->availableEmployeeTotalPages }}
+                                    </flux:text>
+
+                                    <div class="flex items-center gap-1">
+                                        <flux:button
+                                            type="button"
+                                            wire:click="previousAvailableParticipantPage"
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="chevron-left"
+                                            :disabled="!$this->availableHasPrevious"
+                                            title="Halaman sebelumnya"
+                                        />
+
+                                        <flux:button
+                                            type="button"
+                                            wire:click="nextAvailableParticipantPage"
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="chevron-right"
+                                            :disabled="!$this->availableHasNext"
+                                            title="Halaman berikutnya"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="flex h-[34rem] min-h-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 xl:h-full">
+                            <div class="shrink-0 space-y-4 border-b border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <flux:heading size="sm" class="font-semibold">
+                                            Peserta terpilih
+                                        </flux:heading>
+
+                                        <flux:text class="mt-1 text-xs">
+                                            Review maksimal 20 peserta pada setiap halaman.
+                                        </flux:text>
+                                    </div>
+
+                                    <flux:badge size="sm" color="emerald">
+                                        {{ $this->selectedParticipantCount }}
+                                        dari {{ count($selected_participants) }}
+                                    </flux:badge>
+                                </div>
+
+                                <flux:input
+                                    wire:model.live.debounce.300ms="selected_participant_search"
+                                    placeholder="Cari peserta terpilih"
+                                    icon="magnifying-glass"
+                                    clearable
+                                    size="sm"
+                                    class="text-xs"
+                                />
+
+                                <div class="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                                    <flux:field>
+                                        <flux:label class="text-xs font-medium">
+                                            Department
+                                        </flux:label>
+
+                                        <flux:select
+                                            wire:model.live="selected_participant_department_id"
+                                            size="sm"
+                                            placeholder="Semua department"
+                                            class="text-xs"
+                                        >
+                                            <flux:select.option value="">
+                                                Semua department
+                                            </flux:select.option>
+
+                                            @foreach ($departments as $department)
+                                                <flux:select.option value="{{ $department->id }}">
+                                                    {{ $department->org_name }}
+                                                </flux:select.option>
+                                            @endforeach
+                                        </flux:select>
+                                    </flux:field>
+
+                                    <flux:field>
+                                        <flux:label class="text-xs font-medium">
+                                            Position
+                                        </flux:label>
+
+                                        <flux:select
+                                            wire:model.live="selected_participant_position_id"
+                                            size="sm"
+                                            placeholder="Semua position"
+                                            class="text-xs"
+                                        >
+                                            <flux:select.option value="">
+                                                Semua position
+                                            </flux:select.option>
+
+                                            @foreach ($positions as $position)
+                                                <flux:select.option value="{{ $position->id }}">
+                                                    {{ $position->position_name }}
+                                                </flux:select.option>
+                                            @endforeach
+                                        </flux:select>
+                                    </flux:field>
+
+                                    <div class="flex">
+                                        @if (
+                                            $selected_participant_search !== ''
+                                            || $selected_participant_department_id !== ''
+                                            || $selected_participant_position_id !== ''
+                                        )
+                                            <flux:button
+                                                type="button"
+                                                wire:click="clearSelectedParticipantFilters"
+                                                variant="subtle"
+                                                size="sm"
+                                                icon="x-mark"
+                                            >
+                                                Reset
+                                            </flux:button>
+                                        @else
+                                            <div class="hidden h-8 w-[72px] sm:block"></div>
+                                        @endif
+                                    </div>
+                                </div>
+
+                                <div class="flex flex-col gap-2 rounded-xl bg-zinc-50 p-2.5 dark:bg-zinc-900/70 sm:flex-row sm:items-center sm:justify-between">
+                                    <div class="flex flex-wrap items-center gap-1">
+                                        <flux:button
+                                            type="button"
+                                            wire:click="selectVisibleSelectedParticipants"
+                                            variant="ghost"
+                                            size="sm"
+                                            :disabled="$this->selectedParticipantsPage->isEmpty()"
+                                        >
+                                            Pilih semua
+                                        </flux:button>
+
+                                        @if ($selected_employee_ids_for_removal !== [])
+                                            <flux:button
+                                                type="button"
+                                                wire:click="clearSelectedParticipantSelection"
+                                                variant="ghost"
+                                                size="sm"
+                                            >
+                                                Clear
+                                            </flux:button>
+                                        @endif
+                                    </div>
+
+                                    <div class="flex flex-wrap gap-2">
+                                        <flux:button
+                                            type="button"
+                                            wire:click="removeCheckedParticipants"
+                                            variant="danger"
+                                            size="sm"
+                                            icon="user-minus"
+                                            :disabled="$selected_employee_ids_for_removal === []"
+                                        >
+                                            Keluarkan ({{ count($selected_employee_ids_for_removal) }})
+                                        </flux:button>
+
+                                        <flux:button
+                                            type="button"
+                                            wire:click="prepareClearSelectedParticipants"
+                                            variant="subtle"
+                                            size="sm"
+                                            icon="trash"
+                                            :disabled="$selected_participants === []"
+                                        >
+                                            Kosongkan daftar
+                                        </flux:button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div
+                                class="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                                tabindex="0"
+                                aria-label="Daftar peserta terpilih"
+                            >
+                                @forelse ($this->selectedParticipantsPage as $participant)
+                                    @php
+                                        $selectedChecked = in_array(
+                                            (int) $participant['id'],
+                                            array_map('intval', $selected_employee_ids_for_removal),
+                                            true
+                                        );
+                                    @endphp
+
+                                    <div
+                                        wire:key="selected-participant-{{ $participant['id'] }}"
+                                        @class([
+                                            'group flex min-w-0 items-center gap-3 border-b border-zinc-100 px-4 py-3 transition last:border-b-0 dark:border-zinc-800',
+                                            'bg-rose-50/70 dark:bg-rose-950/20' => $selectedChecked,
+                                            'hover:bg-zinc-50 dark:hover:bg-zinc-900/70' => !$selectedChecked,
+                                        ])
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            wire:model.live="selected_employee_ids_for_removal"
+                                            value="{{ $participant['id'] }}"
+                                            aria-label="Pilih {{ $participant['name'] }} untuk dikeluarkan"
+                                            class="size-4 shrink-0 rounded border-zinc-300 text-rose-600 focus:ring-rose-500 dark:border-zinc-700 dark:bg-zinc-900"
+                                        >
+
+                                        <flux:button
+                                            type="button"
+                                            wire:click="removeParticipant({{ $participant['id'] }})"
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="arrow-left"
+                                            class="shrink-0"
+                                            title="Keluarkan peserta"
+                                        />
+
+                                        <div class="min-w-0 flex-1">
+                                            <div class="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                                {{ $participant['name'] }}
+                                            </div>
+
+                                            <div class="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+                                                <flux:badge size="sm" color="emerald">
+                                                    {{ $participant['nik'] ?: '-' }}
+                                                </flux:badge>
+
+                                                <span class="min-w-0 truncate text-xs text-zinc-500">
+                                                    {{ $participant['org_name'] ?? 'Tanpa department' }}
+                                                </span>
+                                            </div>
+
+                                            <div class="mt-1 truncate text-xs text-zinc-400">
+                                                {{ $participant['position_name'] ?? '-' }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                @empty
+                                    <div class="flex h-full min-h-[260px] flex-col items-center justify-center gap-3 px-6 text-center">
+                                        <div class="flex size-11 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-900">
+                                            <flux:icon.users class="h-5 w-5 text-zinc-400" />
+                                        </div>
+
+                                        <div>
+                                            <flux:heading size="sm">
+                                                Belum ada peserta
+                                            </flux:heading>
+
+                                            <flux:text class="mt-1 max-w-sm text-xs">
+                                                Tambahkan karyawan dari panel di sebelah kiri.
+                                            </flux:text>
+                                        </div>
+                                    </div>
+                                @endforelse
+                            </div>
+
+                            <div class="shrink-0 border-t border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+                                <div class="flex items-center justify-between gap-3">
+                                    <flux:text class="text-xs">
+                                        Halaman {{ $selected_participant_page }}
+                                        dari {{ $this->selectedParticipantTotalPages }}
+                                    </flux:text>
+
+                                    <div class="flex items-center gap-1">
+                                        <flux:button
+                                            type="button"
+                                            wire:click="previousSelectedParticipantPage"
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="chevron-left"
+                                            :disabled="!$this->selectedHasPrevious"
+                                            title="Halaman sebelumnya"
+                                        />
+
+                                        <flux:button
+                                            type="button"
+                                            wire:click="nextSelectedParticipantPage"
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="chevron-right"
+                                            :disabled="!$this->selectedHasNext"
+                                            title="Halaman berikutnya"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <flux:error name="selected_participants" />
+                </div>
+
+                <div class="shrink-0 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+                    <div class="flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
+                        <div class="min-w-0">
+                            @if ($this->participantHasChanges)
+                                <div class="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                                    <span class="size-2 shrink-0 rounded-full bg-amber-500"></span>
+                                    Ada perubahan yang belum disimpan.
+                                </div>
+                            @else
+                                <flux:text class="text-xs">
+                                    Belum ada perubahan peserta.
+                                </flux:text>
+                            @endif
+                        </div>
+
+                        <flux:spacer />
+
+                        <flux:button
+                            type="button"
+                            variant="ghost"
+                            wire:click="closeParticipantsModal"
+                            wire:loading.attr="disabled"
+                            wire:target="saveParticipants"
+                        >
+                            Batal
+                        </flux:button>
+
+                        <flux:button
+                            type="button"
+                            variant="primary"
+                            icon="check"
+                            wire:click="saveParticipants"
+                            wire:loading.attr="disabled"
+                            wire:target="saveParticipants"
+                            :disabled="!$this->participantHasChanges"
+                        >
+                            <span wire:loading.remove wire:target="saveParticipants">
+                                Simpan {{ count($selected_participants) }} peserta
+                            </span>
+
+                            <span wire:loading wire:target="saveParticipants">
+                                Menyimpan...
+                            </span>
+                        </flux:button>
+                    </div>
+                </div>
+            </div>
+        </flux:modal>
+
+        <flux:modal
+            wire:model.self="show_participant_bulk_add_modal"
+            class="md:w-[30rem]"
+            :dismissible="false"
+        >
+            <div class="space-y-5">
+                <div>
+                    <flux:heading size="lg">
+                        Tambah semua hasil filter?
+                    </flux:heading>
+
+                    <flux:text class="mt-2 leading-relaxed">
+                        Terdapat {{ number_format($pending_bulk_add_count) }}
+                        karyawan tersedia. Sistem akan menambahkan
+                        {{ number_format($pending_bulk_add_limit) }}
+                        karyawan pada proses ini.
+                    </flux:text>
+                </div>
+
+                @if ($pending_bulk_add_count > $pending_bulk_add_limit)
+                    <flux:callout icon="exclamation-triangle" color="amber">
+                        <flux:callout.text class="text-xs">
+                            Maksimal 500 karyawan per proses. Gunakan filter yang lebih spesifik untuk memproses sisanya.
+                        </flux:callout.text>
+                    </flux:callout>
+                @endif
+
+                <div class="flex justify-end gap-2">
+                    <flux:button
+                        type="button"
+                        variant="ghost"
+                        wire:click="$set('show_participant_bulk_add_modal', false)"
+                    >
+                        Batal
+                    </flux:button>
+
+                    <flux:button
+                        type="button"
+                        variant="primary"
+                        wire:click="confirmAddAllFilteredParticipants"
+                        wire:loading.attr="disabled"
+                        wire:target="confirmAddAllFilteredParticipants"
+                    >
+                        Tambahkan {{ number_format($pending_bulk_add_limit) }}
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
+
+        <flux:modal
+            wire:model.self="show_participant_clear_modal"
+            class="md:w-[30rem]"
+            :dismissible="false"
+        >
+            <div class="space-y-5">
+                <div>
+                    <flux:heading size="lg" class="text-rose-600 dark:text-rose-400">
+                        Kosongkan daftar peserta?
+                    </flux:heading>
+
+                    <flux:text class="mt-2 leading-relaxed">
+                        {{ number_format(count($selected_participants)) }}
+                        peserta akan dikeluarkan dari daftar sementara.
+                        Perubahan baru diterapkan setelah tombol Simpan ditekan.
+                    </flux:text>
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <flux:button
+                        type="button"
+                        variant="ghost"
+                        wire:click="$set('show_participant_clear_modal', false)"
+                    >
+                        Batal
+                    </flux:button>
+
+                    <flux:button
+                        type="button"
+                        variant="danger"
+                        wire:click="confirmClearSelectedParticipants"
+                    >
+                        Kosongkan daftar
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
+
+        <flux:modal
+            wire:model.self="show_participant_discard_modal"
+            class="md:w-[30rem]"
+            :dismissible="false"
+        >
+            <div class="space-y-5">
+                <div>
+                    <flux:heading size="lg">
+                        Buang perubahan?
+                    </flux:heading>
+
+                    <flux:text class="mt-2 leading-relaxed">
+                        Perubahan peserta belum disimpan.
+                        Jika modal ditutup sekarang, semua perubahan akan hilang.
+                    </flux:text>
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <flux:button
+                        type="button"
+                        variant="ghost"
+                        wire:click="cancelDiscardParticipantChanges"
+                    >
+                        Kembali mengedit
+                    </flux:button>
+
+                    <flux:button
+                        type="button"
+                        variant="danger"
+                        wire:click="discardParticipantChanges"
+                    >
+                        Buang perubahan
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
+    @endcan
+
+    @can(\App\Support\Auth\Permissions::IMPORT_TRAINING)
+        <flux:modal
+            wire:model.self="show_import_modal"
+            class="md:w-[36rem]"
+            :dismissible="false"
+        >
+            <div class="space-y-6">
+                <div>
+                    <flux:heading size="lg" class="font-semibold">
+                        Import data training
+                    </flux:heading>
+
+                    <flux:text class="mt-1 text-sm">
+                        Gunakan template resmi agar struktur kolom sesuai dan proses import lebih aman.
+                    </flux:text>
+                </div>
+
+                <div class="rounded-xl border border-blue-200 bg-blue-50/70 p-4 dark:border-blue-900 dark:bg-blue-950/30">
+                    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="min-w-0">
+                            <div class="font-medium text-zinc-900 dark:text-zinc-100">
+                                Template import training
+                            </div>
+
+                            <div class="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                Isi data pada file ini tanpa mengubah nama atau urutan kolom.
+                            </div>
+                        </div>
+
+                        <flux:button
+                            href="{{ asset('Template_Import_Training.xlsx') }}"
+                            download="Template_Import_Training.xlsx"
+                            variant="subtle"
+                            size="sm"
+                            icon="arrow-down-tray"
+                            class="shrink-0"
+                        >
+                            Unduh template
+                        </flux:button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div class="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+                        <div class="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                            1. Unduh
+                        </div>
+
+                        <div class="mt-1 text-xs leading-relaxed text-zinc-500">
+                            Gunakan template yang tersedia.
                         </div>
                     </div>
 
-                    {{-- MODAL FOOTER - Tombol Berada di Dalam Modal --}}
-                    <div class="p-8 bg-slate-50 border-t border-slate-100 flex justify-end gap-4 shrink-0">
-                        <button type="button" wire:click="$set('showFormModal', false)" class="px-8 py-4 rounded-2xl font-black text-slate-400 hover:bg-slate-200 uppercase text-[10px] tracking-widest transition-all italic">Batal</button>
-                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-12 py-4 rounded-2xl font-black shadow-lg shadow-blue-100 transition-all active:scale-95 uppercase italic tracking-tight">
-                            {{ $training_id ? 'Simpan Perubahan' : 'Publish Training Baru' }}
-                        </button>
+                    <div class="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+                        <div class="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                            2. Lengkapi
+                        </div>
+
+                        <div class="mt-1 text-xs leading-relaxed text-zinc-500">
+                            Isi data tanpa mengubah header.
+                        </div>
+                    </div>
+
+                    <div class="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+                        <div class="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                            3. Import
+                        </div>
+
+                        <div class="mt-1 text-xs leading-relaxed text-zinc-500">
+                            Pilih file lalu mulai proses.
+                        </div>
+                    </div>
+                </div>
+
+                <form wire:submit.prevent="importExcel" class="space-y-5">
+                    <flux:field>
+                        <flux:label class="text-sm font-medium">
+                            File training
+                        </flux:label>
+
+                        <flux:input
+                            wire:model="excel_file"
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            class="text-sm"
+                        />
+
+                        <flux:text class="mt-1 text-xs">
+                            Format yang didukung: XLSX, XLS, atau CSV.
+                        </flux:text>
+
+                        <flux:error name="excel_file" />
+                    </flux:field>
+
+                    <div class="flex flex-col-reverse gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-800 sm:flex-row sm:justify-end">
+                        <flux:button
+                            type="button"
+                            variant="ghost"
+                            wire:click="$set('show_import_modal', false)"
+                            wire:loading.attr="disabled"
+                            wire:target="importExcel"
+                        >
+                            Batal
+                        </flux:button>
+
+                        <flux:button
+                            type="submit"
+                            variant="primary"
+                            wire:loading.attr="disabled"
+                            wire:target="importExcel"
+                        >
+                            <span wire:loading.remove wire:target="importExcel">
+                                Import data
+                            </span>
+
+                            <span wire:loading wire:target="importExcel">
+                                Memproses...
+                            </span>
+                        </flux:button>
                     </div>
                 </form>
             </div>
-        </div>
-        @endif
+        </flux:modal>
+    @endcan
 
-        {{-- MODAL IMPORT EXCEL --}}
-        @if($show_import_modal)
-        <div class="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/70 backdrop-blur-md animate-in fade-in duration-300">
-            <div class="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col">
+    @canany([
+        \App\Support\Auth\Permissions::CREATE_TRAINING,
+        \App\Support\Auth\Permissions::UPDATE_TRAINING,
+    ])
+        <livewire:training.batch-form />
+    @endcanany
+</div>
 
-                {{-- Header Modal: Putih Bersih sesuai instruksi mentor --}}
-                <div class="p-8 border-b border-slate-100 flex justify-between items-center bg-white text-slate-800">
-                    <div>
-                        <h3 class="font-black uppercase italic text-sm tracking-tighter">Import Data Training</h3>
-                        <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">Format: .xlsx / .xls</p>
-                    </div>
-                    <button wire:click="$set('show_import_modal', false)" class="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-rose-500 transition-all font-bold shadow-inner">✕</button>
-                </div>
-
-                <form wire:submit.prevent="importExcel" class="p-8 space-y-6">
-                    {{-- Input File Custom Style --}}
-                    <div class="space-y-2">
-                        <label class="block text-[10px] font-black text-slate-400 mb-2 tracking-widest uppercase italic">Pilih File Excel</label>
-                        <input type="file" wire:model="excel_file"
-                            class="w-full text-[11px] font-bold text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:bg-blue-50 file:text-blue-600 hover:file:bg-blue-100 cursor-pointer italic bg-slate-50 p-4 rounded-2xl shadow-inner border-none">
-                        @error('excel_file') <span class="text-rose-500 text-[10px] font-bold uppercase italic">{{ $message }}</span> @enderror
-                    </div>
-
-                    {{-- Tombol dengan Teks Sesuai Permintaan --}}
-                    <button type="submit" wire:loading.attr="disabled"
-                        class="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[11px] shadow-lg shadow-emerald-100 transition-all active:scale-95 flex justify-center items-center gap-2 italic">
-                        <span wire:loading wire:target="excel_file" class="animate-spin text-xs">🌀</span>
-                        START IMPORT DATA
-                    </button>
-                </form>
-
-                {{-- Footer Modal Simpel --}}
-                <div class="p-6 bg-slate-50 border-t border-slate-100 flex justify-center italic">
-                    <button type="button" wire:click="$set('show_import_modal', false)" class="text-[9px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-all">Batal & Tutup</button>
-                </div>
-            </div>
-        </div>
-        @endif
-        <style>
-            .custom-scrollbar::-webkit-scrollbar {
-                width: 5px;
-            }
-
-            .custom-scrollbar::-webkit-scrollbar-track {
-                background: transparent;
-            }
-
-            .custom-scrollbar::-webkit-scrollbar-thumb {
-                background: #e2e8f0;
-                border-radius: 10px;
-            }
-
-            .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-                background: #cbd5e1;
-            }
-        </style>
-    </div>

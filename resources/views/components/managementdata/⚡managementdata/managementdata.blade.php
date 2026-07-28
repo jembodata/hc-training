@@ -1,170 +1,221 @@
-<div class="min-h-screen bg-white p-4 lg:p-8">
-    <div class="max-w-7xl mx-auto space-y-8">
+<div id="management-data-content" class="relative w-full">
+    {{-- PAGE HEADER --}}
+    <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div class="min-w-0">
+            <flux:heading size="xl" level="1">
+                Management Master Data
+            </flux:heading>
 
-        {{-- HEADER SECTION: KOTAK JUDUL (Seragam) --}}
-        <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div>
-                    <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Management Master Data</h2>
-                    <p class="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">Training Management System</p>
-                </div>
+            <flux:subheading size="lg" class="mb-6">
+                Kelola data organization dan position untuk kebutuhan sistem training.
+            </flux:subheading>
+        </div>
 
-                {{-- Tab Switcher: Dibuat lebih estetik --}}
-                <div class="inline-flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100 shadow-inner gap-2">
-                    @foreach(['org' => 'Organization', 'pos' => 'Position'] as $key => $label)
-                    <button
-                        type="button"
-                        wire:click="$set('activeTab', '{{ $key }}')"
-                        class="px-6 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 {{ $activeTab === $key ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-indigo-500' }}">
-                        {{ $label }}
-                    </button>
-                    @endforeach
-                </div>
+        @can(\App\Support\Auth\Permissions::CREATE_DEPARTMENT_POSITION_DATA)
+            <div class="flex flex-wrap items-center gap-2 lg:flex-shrink-0">
+                <flux:button type="button" wire:click="openCreateModal" variant="primary" icon="plus" size="sm"
+                    class="font-bold uppercase text-xs">
+                    Tambah {{ $activeTab === 'org' ? 'Organization' : 'Position' }}
+                </flux:button>
+            </div>
+        @endcan
+    </div>
+
+    <flux:separator variant="subtle" />
+
+    {{-- MAIN CARD --}}
+    <flux:card class="mt-6 space-y-6">
+        {{-- FILTER & SEARCH --}}
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <flux:tab.group :default="$activeTab" class="space-y-0">
+                    <flux:tabs wire:model.live="activeTab" variant="segmented" size="sm">
+                        <flux:tab name="org" icon="building-office-2" :selected="$activeTab === 'org'">
+                            Organization
+                        </flux:tab>
+
+                        <flux:tab name="pos" icon="briefcase" :selected="$activeTab === 'pos'">
+                            Position
+                        </flux:tab>
+                    </flux:tabs>
+                </flux:tab.group>
+
+                @if ($search !== '')
+                    <flux:button type="button" variant="subtle" size="sm" wire:click="clearSearch"
+                        class="font-black uppercase text-[11px]">
+                        Reset
+                    </flux:button>
+                @endif
+            </div>
+
+            <div class="w-full lg:w-[320px]">
+                <flux:input wire:model.live.debounce.300ms="search"
+                    placeholder="{{ $activeTab === 'org' ? 'Cari nama organization' : 'Cari nama position' }}"
+                    icon="magnifying-glass" clearable size="sm" class="text-xs" />
             </div>
         </div>
 
-        @if (session()->has('success'))
-        <div class="p-4 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-sm animate-in fade-in">
-            {{ session('success') }}
-        </div>
-        @endif
+        {{-- TABLE --}}
+        <flux:table :paginate="$this->masterData">
+            <flux:table.columns>
+                <flux:table.column class="text-xs font-black uppercase" align="center">
+                    No.
+                </flux:table.column>
 
-        {{-- FORM SECTION --}}
-        <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 relative overflow-hidden">
-            <div class="absolute top-0 left-0 w-1.5 h-full bg-indigo-600"></div>
+                <flux:table.column class="text-xs font-black uppercase">
+                    {{ $activeTab === 'org' ? 'Organization / Department' : 'Position / Jabatan' }}
+                </flux:table.column>
 
-            <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">
-                {{ $editingId ? 'Update Data ' . ($activeTab == 'org' ? 'Organization' : 'Position') : 'Tambah Data ' . ($activeTab == 'org' ? 'Organization' : 'Position') }}
-            </h4>
+                <flux:table.column class="text-xs font-black uppercase" align="center">
+                    Aksi
+                </flux:table.column>
+            </flux:table.columns>
 
-            <form wire:submit="save">
-                <div class="flex flex-col md:flex-row items-end gap-4">
-                    <div class="flex-1 space-y-2 w-full">
-                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
-                            {{ $activeTab == 'org' ? 'Nama Departemen' : 'Nama Jabatan' }}
-                        </label>
-                        <input type="text" wire:model="name" class="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border-none focus:ring-4 focus:ring-indigo-100 outline-none transition-all text-sm font-bold uppercase" placeholder="Ketik nama data master...">
-                        @error('name') <span class="text-rose-500 text-[9px] font-black uppercase ml-1">{{ $message }}</span> @enderror
-                    </div>
+            <flux:table.rows>
+                @forelse ($this->masterData as $row)
+                    <flux:table.row :key="$activeTab . '-' . $row->id">
+                        <flux:table.cell class="text-center font-semibold text-xs tabular-nums">
+                            {{ $this->masterData->firstItem() + $loop->index }}
+                        </flux:table.cell>
 
-                    <div class="flex gap-2 w-full md:w-auto">
-                        <button type="submit" class="flex-1 md:flex-none px-10 py-4 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all flex justify-center items-center gap-2 text-[10px] uppercase tracking-widest active:scale-95">
-                            {{ $editingId ? 'Update Data' : 'Simpan Data' }}
-                        </button>
+                        <flux:table.cell class="font-semibold uppercase text-xs">
+                            {{ $activeTab === 'org' ? $row->org_name : $row->position_name }}
+                        </flux:table.cell>
 
-                        @if($editingId)
-                        <button type="button" wire:click="resetForm" class="px-6 py-4 bg-slate-100 text-slate-400 font-black rounded-2xl hover:bg-slate-200 transition-all text-[10px] uppercase tracking-widest">
-                            Batal
-                        </button>
-                        @endif
-                    </div>
+                        <flux:table.cell>
+                            <div class="flex items-center justify-center gap-1">
+                                @can(\App\Support\Auth\Permissions::UPDATE_DEPARTMENT_POSITION_DATA)
+                                    <flux:button type="button" variant="ghost" size="sm" icon="pencil-square"
+                                        wire:click="openEditModal({{ $row->id }})" inset="top bottom"
+                                        class="text-slate-500 hover:text-blue-600" title="Edit Data" />
+                                @endcan
+
+                                @can(\App\Support\Auth\Permissions::DELETE_DEPARTMENT_POSITION_DATA)
+                                    <flux:button type="button" variant="ghost" size="sm" icon="trash"
+                                        wire:click="confirmDelete({{ $row->id }})" inset="top bottom"
+                                        class="text-slate-500 hover:text-rose-600" title="Hapus Data" />
+                                @endcan
+
+                                @cannot(\App\Support\Auth\Permissions::UPDATE_DEPARTMENT_POSITION_DATA)
+                                    @cannot(\App\Support\Auth\Permissions::DELETE_DEPARTMENT_POSITION_DATA)
+                                        <span class="text-xs text-slate-400">
+                                            -
+                                        </span>
+                                    @endcannot
+                                @endcannot
+                            </div>
+                        </flux:table.cell>
+                    </flux:table.row>
+                @empty
+                    <flux:table.row>
+                        <flux:table.cell colspan="3" class="text-center py-16 font-black uppercase opacity-40">
+                            Belum Ada Data Master
+                            {{ $activeTab === 'org' ? 'Organization' : 'Position' }}
+                        </flux:table.cell>
+                    </flux:table.row>
+                @endforelse
+            </flux:table.rows>
+        </flux:table>
+    </flux:card>
+
+    {{-- CREATE / EDIT MODAL --}}
+    <flux:modal wire:model.self="show_form_modal" wire:close="resetForm" class="md:w-[34rem] -translate-y-16"
+        :dismissible="false">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg" class="flex items-center gap-2 font-black uppercase">
+                    @if ($editingId)
+                        <flux:icon.pencil-square class="h-5 w-5 text-indigo-600" />
+                    @else
+                        <flux:icon.plus-circle class="h-5 w-5 text-indigo-600" />
+                    @endif
+
+                    {{ $editingId ? 'Update' : 'Tambah' }}
+                    {{ $activeTab === 'org' ? 'Organization' : 'Position' }}
+                </flux:heading>
+
+                <flux:text
+                    class="mt-1 text-[11px] font-bold uppercase
+                           text-slate-400 dark:text-slate-500">
+                    Lengkapi nama data master lalu simpan perubahan.
+                </flux:text>
+            </div>
+
+            <form wire:submit.prevent="save" class="space-y-6">
+                <flux:field>
+                    <flux:label class="text-[10px] font-black uppercase">
+                        {{ $activeTab === 'org' ? 'Nama Organization' : 'Nama Position' }}
+                    </flux:label>
+
+                    <flux:input wire:model="name"
+                        placeholder="Masukkan {{ $activeTab === 'org' ? 'nama organization' : 'nama position' }}"
+                        maxlength="150" autofocus class="font-bold uppercase text-xs" />
+
+                    <flux:error name="name" />
+                </flux:field>
+
+                <div class="flex gap-2 border-t border-slate-100 pt-4
+                           dark:border-slate-800">
+                    <flux:spacer />
+
+                    <flux:button type="button" wire:click="resetForm" variant="ghost" wire:loading.attr="disabled"
+                        wire:target="save" class="font-black uppercase text-xs">
+                        Batal
+                    </flux:button>
+
+                    <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="save"
+                        class="font-black uppercase text-xs">
+                        <span wire:loading.remove wire:target="save">
+                            {{ $editingId ? 'Simpan Perubahan' : 'Simpan Data' }}
+                        </span>
+
+                        <span wire:loading wire:target="save">
+                            Saving...
+                        </span>
+                    </flux:button>
                 </div>
             </form>
         </div>
+    </flux:modal>
 
-        {{-- SEARCH AREA --}}
-        <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex items-center w-fit gap-2">
-            <input type="text" wire:model.live.debounce.300ms="search" placeholder="Cari data master..." class="pl-4 pr-4 py-2 bg-transparent border-none focus:ring-0 text-sm font-bold uppercase text-slate-600">
-            <button wire:click="$set('search', '')" class="px-4 py-2 bg-slate-50 text-slate-400 font-black rounded-xl text-[10px] uppercase hover:text-slate-600 transition-colors">Reset</button>
-        </div>
+    {{-- DELETE CONFIRMATION MODAL --}}
+    <flux:modal wire:model.self="show_delete_modal" wire:close="resetDeleteModal" class="min-w-[22rem] -translate-y-20"
+        :dismissible="false">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg" class="text-rose-600 dark:text-rose-400">
+                    Hapus {{ $deleteType === 'org' ? 'Organization' : 'Position' }}?
+                </flux:heading>
 
-        {{-- TABLE SECTION --}}
-        <div class="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left">
-                    <thead class="bg-blue-600">
-                        <tr>
-                            <th class="px-8 py-5 w-24 text-[10px] font-black text-white uppercase tracking-widest border-none">No</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Nama Item Master</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest text-center w-64 border-none">Aksi Pengelolaan</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-50">
-                        @forelse($this->masterData as $index => $row)
-                        <tr class="hover:bg-slate-50 transition-colors group">
-                            <td class="px-8 py-5 text-xs font-bold text-slate-300 group-hover:text-indigo-400">
-                                {{ $this->masterData->firstItem() + $index }}
-                            </td>
-
-                            <td class="px-8 py-5">
-                                <span class="text-sm font-bold text-slate-700 uppercase tracking-tight">
-                                    {{ $activeTab === 'org' ? $row->org_name : $row->position_name }}
-                                </span>
-                            </td>
-
-                            <td class="px-8 py-5">
-                                <div class="flex justify-center items-center gap-3">
-                                    <button wire:click="edit({{ $row->id }})"
-                                        class="px-5 py-2 bg-amber-400 text-white font-black rounded-xl shadow-lg shadow-amber-100 hover:bg-amber-500 transition-all text-[9px] uppercase tracking-widest">
-                                        Edit
-                                    </button>
-
-                                    <button onclick="confirm('Yakin ingin menghapus?') || event.stopImmediatePropagation()"
-                                        wire:click="delete({{ $row->id }})"
-                                        class="px-5 py-2 bg-rose-500 text-white font-black rounded-xl shadow-lg shadow-rose-100 hover:bg-rose-600 transition-all text-[9px] uppercase tracking-widest">
-                                        Delete
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        @empty
-                        <tr>
-                            <td colspan="3" class="px-8 py-16 text-center text-slate-300 text-[11px] font-black uppercase tracking-[0.2em] opacity-60">
-                                Data tidak ditemukan...
-                            </td>
-                        </tr>
-                        @endforelse
-                    </tbody>
-                </table>
+                <flux:text class="mt-2">
+                    Anda akan menghapus
+                    <span class="font-semibold text-zinc-900 dark:text-zinc-100">
+                        {{ $deleteName ?: 'data master ini' }}
+                    </span>.
+                    <br>
+                    Tindakan ini tidak bisa dibatalkan.
+                </flux:text>
             </div>
 
-            {{-- PAGINATION --}}
-            <div class="px-10 py-8 bg-slate-50/50 border-t border-slate-50 flex flex-col md:flex-row justify-between items-center gap-6">
-                <div class="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">
-                    SHOWING <span class="text-indigo-600">{{ $this->masterData->firstItem() ?? 0 }}</span> TO <span class="text-indigo-600">{{ $this->masterData->lastItem() ?? 0 }}</span> OF <span class="text-slate-800">{{ $this->masterData->total() }}</span> MASTER ITEMS
-                </div>
+            <div class="flex gap-2">
+                <flux:spacer />
 
-                <div class="flex items-center gap-3">
-                    {{-- Custom Pagination Manual --}}
-                    @if ($this->masterData->onFirstPage())
-                    <span class="px-8 py-3 bg-white text-slate-200 font-[1000] text-[10px] uppercase tracking-widest rounded-2xl border border-slate-100 cursor-not-allowed shadow-inner">PREV</span>
-                    @else
-                    <button wire:click="previousPage" class="px-8 py-3 bg-white text-indigo-600 font-[1000] text-[10px] uppercase tracking-widest rounded-2xl shadow-lg shadow-indigo-100/50 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all active:scale-95 italic">PREV</button>
-                    @endif
+                <flux:button type="button" wire:click="resetDeleteModal" variant="ghost"
+                    wire:loading.attr="disabled" wire:target="deleteMasterData">
+                    Batal
+                </flux:button>
 
-                    <div class="px-5 py-3 bg-indigo-50 rounded-2xl text-[11px] font-black text-indigo-600 uppercase tracking-widest shadow-inner border border-indigo-100">
-                        PAGE {{ $this->masterData->currentPage() }}
-                    </div>
+                <flux:button type="button" wire:click="deleteMasterData" variant="danger"
+                    wire:loading.attr="disabled" wire:target="deleteMasterData">
+                    <span wire:loading.remove wire:target="deleteMasterData">
+                        Hapus Data
+                    </span>
 
-                    @if ($this->masterData->hasMorePages())
-                    <button wire:click="nextPage" class="px-8 py-3 bg-white text-indigo-600 font-[1000] text-[10px] uppercase tracking-widest rounded-2xl shadow-lg shadow-indigo-100/50 border border-slate-100 hover:bg-indigo-600 hover:text-white transition-all active:scale-95 italic">NEXT</button>
-                    @else
-                    <span class="px-8 py-3 bg-white text-slate-200 font-[1000] text-[10px] uppercase tracking-widest rounded-2xl border border-slate-100 cursor-not-allowed shadow-inner">NEXT</span>
-                    @endif
-                </div>
+                    <span wire:loading wire:target="deleteMasterData">
+                        Deleting...
+                    </span>
+                </flux:button>
             </div>
         </div>
-    </div>
+    </flux:modal>
 </div>
-@script
-<script>
-    $wire.on('swal:success', (data) => {
-        Swal.fire({
-            title: 'BERHASIL!',
-            text: data.message,
-            icon: 'success',
-            iconColor: '#10b981',
-            showConfirmButton: false,
-            timer: 3000,
-            timerProgressBar: true,
-            background: '#ffffff',
-            padding: '3rem',
-            customClass: {
-                popup: 'rounded-[3rem] border-none shadow-2xl',
-                title: 'font-[1000] uppercase tracking-tighter text-3xl italic text-slate-800',
-                htmlContainer: 'font-black uppercase text-[11px] tracking-[0.2em] text-slate-400 mt-4'
-            }
-        });
-    });
-</script>
-@endscript

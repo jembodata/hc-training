@@ -1,62 +1,128 @@
 <?php
 
+use App\Support\Auth\AuthorizedRoute;
+use App\Support\Auth\Permissions;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
-use App\Livewire\History\History;
-
 
 Route::get('/', function () {
-    return redirect()->route('dashboard');
+    if (! Auth::check()) {
+        return redirect()->route('login');
+    }
+
+    return redirect()->to(
+        AuthorizedRoute::urlFor(Auth::user())
+    );
 })->name('home');
 
+Route::middleware(['auth', 'verified'])->group(function (): void {
+    Route::livewire('dashboard', 'dashboard')
+        ->middleware(
+            'permission:' . Permissions::VIEW_DASHBOARD
+        )
+        ->name('dashboard');
 
-Route::livewire('dashboard', 'dashboard')
-    ->middleware(['auth', 'verified'])
-    ->name('dashboard');
+    Route::livewire('/employee', 'employee.create')
+        ->middleware(
+            'permission:' . Permissions::VIEW_EMPLOYEE
+        )
+        ->name('employee');
 
+    Route::livewire('/training', 'training')
+        ->middleware(
+            'permission:' . Permissions::VIEW_TRAINING
+        )
+        ->name('trainingdata');
 
-Route::livewire('/employee', 'employee.create')
-    ->middleware(['auth', 'verified'])
-    ->name('employee');
+    /*
+    |--------------------------------------------------------------------------
+    | Certificate Templates
+    |--------------------------------------------------------------------------
+    */
 
+    Route::livewire(
+        '/certificate-templates',
+        'training.certificate-templates'
+    )
+        ->middleware(
+            'permission:'
+                . Permissions::VIEW_CERTIFICATE_TEMPLATE
+        )
+        ->name('certificate-templates.index');
 
-Route::livewire('/training', 'training')
-    ->middleware(['auth', 'verified'])
-    ->name('trainingdata');
+    Route::livewire(
+        '/certificate-templates/create',
+        'training.certificate-template-form'
+    )
+        ->middleware(
+            'permission:'
+                . Permissions::CREATE_CERTIFICATE_TEMPLATE
+        )
+        ->name('certificate-templates.create');
 
-Route::livewire('/user-management', 'user-management')
-    ->middleware(['auth', 'verified'])
-    ->name('user-management');
+    Route::livewire(
+        '/certificate-templates/{template}/edit',
+        'training.certificate-template-form'
+    )
+        ->middleware(
+            'permission:'
+                . Permissions::UPDATE_CERTIFICATE_TEMPLATE
+        )
+        ->name('certificate-templates.edit');
 
-Route::livewire('/managementdata', 'managementdata')
-    ->middleware(['auth', 'verified'])
-    ->name('managementdata');
+    Route::livewire('/user-management', 'user-management')
+        ->middleware(
+            'permission:'
+                . Permissions::VIEW_USER
+                . '|'
+                . Permissions::VIEW_ROLE
+        )
+        ->name('user-management');
 
-Route::livewire('/atributemanagement', 'atributemanagement.atributemanagement')
-    ->middleware(['auth', 'verified'])
-    ->name('atributemanagement');
+    Route::livewire('/managementdata', 'managementdata')
+        ->middleware(
+            'permission:'
+                . Permissions::VIEW_DEPARTMENT_POSITION_DATA
+        )
+        ->name('managementdata');
 
-Route::livewire('/trainingdetail', 'trainingdetail')
-    ->middleware(['auth', 'verified'])
-    ->name('trainingdetail');
+    Route::livewire('/trainingdetail', 'trainingdetail')
+        ->middleware(
+            'permission:'
+                . Permissions::VIEW_TRAINING_DETAIL
+        )
+        ->name('trainingdetail');
 
-Route::livewire('/trnc', 'trainer-contribution')
-    ->middleware(['auth', 'verified'])
-    ->name('trnc');
+    Route::livewire('/trnc', 'trainer-contribution')
+        ->middleware(
+            'permission:'
+                . Permissions::VIEW_TRAINING_CONTRIBUTION
+        )
+        ->name('trnc');
 
-Route::livewire('/prf', 'my-profile')
-    ->middleware(['auth', 'verified'])
-    ->name('prf');
+    Route::get('/prf', function () {
+        return redirect()->route('profile.edit');
+    })->name('prf');
 
-Route::livewire('/avg', 'average-training')
-    ->middleware(['auth', 'verified'])
-    ->name('avg');
+    Route::livewire('/avg', 'average-training')
+        ->middleware(
+            'permission:'
+                . Permissions::VIEW_AVERAGE_TRAINING
+        )
+        ->name('avg');
 
-Route::livewire('/trnp', 'training-penetration')
-    ->middleware(['auth', 'verified'])
-    ->name('trnp');
+    Route::livewire('/trnp', 'training-penetration')
+        ->middleware(
+            'permission:'
+                . Permissions::VIEW_TRAINING_PENETRATION
+        )
+        ->name('trnp');
 
-Route::livewire('/history', 'history.history')
-    ->middleware(['auth', 'verified'])
-    ->name('history');
+    /*
+     * Modul History/Recycle Bin sengaja tidak didaftarkan.
+     * Data soft-deleted tetap tersimpan di database.
+     */
+});
 
+require __DIR__ . '/certificates.php';
 require __DIR__ . '/settings.php';

@@ -1,252 +1,410 @@
 <?php
 
+use App\Models\TrainingParticipant;
+use App\Queries\TrainingDetailReportQuery;
+use App\Services\TrainingReportExportService;
+use App\Support\Auth\Permissions;
+use Flux\Flux;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
 use Livewire\Component;
 use Livewire\WithPagination;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 new class extends Component
 {
     use WithPagination;
 
-    public $search = '';
-    public $date_from;
-    public $date_to;
-    public $title_filter = '';
-    public $trainer_filter = '';
-    public $perPage = 10;
+    private const ROWS_PER_PAGE = 10;
 
-    public function updatingSearch()
+    public string $search = '';
+
+    public ?string $date_from = null;
+
+    public ?string $date_to = null;
+
+    /** @var list<string> */
+    public array $title_filter = [];
+
+    /** @var list<string> */
+    public array $trainer_filter = [];
+
+    /** @var array<int, int|null|string> */
+    public array $scores = [];
+
+    /** @var array<int, int|null> */
+    public array $last_valid_scores = [];
+
+    public function mount(): void
     {
-        $this->resetPage();
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_DETAIL
+        );
     }
-    public function updatingTitleFilter()
-    {
-        $this->resetPage();
-    }
-    public function updatingDateFrom()
-    {
-        $this->resetPage();
-    }
-    public function updatingTrainerFilter()
+
+    public function updatedSearch(): void
     {
         $this->resetPage();
     }
 
-    public function mount()
+    public function updatedTitleFilter(): void
     {
-        if (!Auth::check()) {
-            return redirect()->route('login');
+        $this->normalizeSingleSelect(
+            $this->title_filter
+        );
+
+        $this->resetPage();
+    }
+
+    public function updatedTrainerFilter(): void
+    {
+        $this->normalizeSingleSelect(
+            $this->trainer_filter
+        );
+
+        $this->resetPage();
+    }
+
+    public function updatedDateFrom(): void
+    {
+        $this->validateDateFilters();
+        $this->resetPage();
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->validateDateFilters();
+        $this->resetPage();
+    }
+
+    public function resetFilters(): void
+    {
+        $this->reset([
+            'search',
+            'date_from',
+            'date_to',
+            'title_filter',
+            'trainer_filter',
+        ]);
+
+        $this->resetValidation();
+        $this->resetPage();
+
+        Flux::toast(
+            heading: 'Filter direset',
+            text: 'Semua filter laporan telah dibersihkan.',
+            variant: 'success',
+            duration: 2000,
+        );
+    }
+
+    public function updatedScores(
+        mixed $value,
+        string|int $key
+    ): void {
+        $participantId = (int) $key;
+        $field = "scores.{$participantId}";
+
+        try {
+            $this->validateScore($value);
+            $this->resetValidation($field);
+        } catch (ValidationException $exception) {
+            $this->addError(
+                $field,
+                $this->scoreValidationMessage(
+                    $exception
+                )
+            );
         }
     }
 
-    public function resetFilters()
-    {
-        $this->reset(['search', 'date_from', 'date_to', 'title_filter', 'trainer_filter']);
-        $this->resetPage();
-    }
+    public function saveScore(
+        int $participantId
+    ): void {
+        Gate::authorize(
+            Permissions::UPDATE_TRAINING_DETAIL_NILAI
+        );
 
-    public function updateScore($participantId, $newScore)
-    {
-        DB::table('training_participants')
-            ->where('id', $participantId)
-            ->update([
-                'score' => $newScore,
-                'updated_at' => now()
-            ]);
+        $field = "scores.{$participantId}";
+        $value = $this->scores[$participantId]
+            ?? null;
 
-        session()->flash('status', 'Skor berhasil diperbarui!');
-    }
+        try {
+            $this->validateScore($value);
 
-    private function buildQuery()
-    {
-        return DB::table('training_participants as tp')
-            ->join('trainings as t', 'tp.training_id', '=', 't.id')
-            ->whereNull('t.deleted_at')
-            ->leftjoin('employees as e', 'tp.employee_id', '=', 'e.id')
-            ->leftJoin('organizations as o', 'e.org_id', '=', 'o.id')
-            ->leftJoin('positions as p', 'e.position_id', '=', 'p.id')
-            ->leftJoin('employees as tr', 't.trainer_employee_id', '=', 'tr.id')
-            ->select(
-                'tp.id as participant_id',
-                'tp.score',
-                'e.nik',
-                'e.name as employee_name',
-                'o.org_name as department',
-                'e.status as employee_status',
-                'p.position_name',
-                't.title',
-                't.held_by',
-                't.training_date',
-                't.start_time',
-                't.finish_time',
-                't.fee',
-                't.activity_name',
-                't.skill_name',
-                't.is_certified',
-                't.trainer_external_name',
-                'tr.name as trainer_internal_name',
-                'tr.nik as trainer_internal_nik'
+            $score = (
+                $value === ''
+                || $value === null
             )
-            ->when($this->search, function ($q) {
-                $q->where(function ($sub) {
-                    $sub->where('e.name', 'like', '%' . $this->search . '%')
-                        ->orWhere('e.nik', 'like', '%' . $this->search . '%')
-                        ->orWhere('o.org_name', 'like', '%' . $this->search . '%');
-                });
-            })
-            ->when($this->title_filter, function ($q) {
-                $q->where('t.title', 'like', '%' . $this->title_filter . '%');
-            })
-            ->when($this->trainer_filter, function ($q) {
-                $q->where(function ($sub) {
-                    $sub->where('tr.name', 'like', '%' . $this->trainer_filter . '%')
-                        ->orWhere('t.trainer_external_name', 'like', '%' . $this->trainer_filter . '%');
-                });
-            })
-            ->when($this->date_from, function ($q) {
-                $q->whereDate('t.training_date', '>=', $this->date_from);
-            })
-            ->when($this->date_to, function ($q) {
-                $q->whereDate('t.training_date', '<=', $this->date_to);
-            })
-            ->orderBy('t.training_date', 'desc');
+                ? null
+                : (int) $value;
+
+            DB::transaction(
+                function () use (
+                    $participantId,
+                    $score
+                ): void {
+                    $participant =
+                        TrainingParticipant::query()
+                        ->whereKey($participantId)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    $participant->score = $score;
+                    $participant->save();
+                }
+            );
+
+            $this->scores[$participantId] = $score;
+            $this->last_valid_scores[$participantId] = $score;
+
+            $this->resetValidation($field);
+
+            Flux::toast(
+                heading: 'Score diperbarui',
+                text: 'Perubahan score berhasil disimpan.',
+                variant: 'success',
+                duration: 2000,
+            );
+        } catch (ValidationException $exception) {
+            $message = $this->scoreValidationMessage(
+                $exception
+            );
+
+            $this->addError($field, $message);
+            $this->scores[$participantId] =
+                $this->last_valid_scores[$participantId] ?? null;
+
+            Flux::toast(
+                heading: 'Score tidak valid',
+                text: $message,
+                variant: 'danger',
+                duration: 3000,
+            );
+        }
     }
 
-    public function exportExcel()
+    public function exportExcel(
+        TrainingReportExportService $exporter
+    ): mixed {
+        Gate::authorize(
+            Permissions::EXPORT_TRAINING_DETAIL
+        );
+
+        $this->validateDateFilters();
+
+        return $exporter->detail(
+            $this->filters()
+        );
+    }
+
+    public function exportRekap(
+        TrainingReportExportService $exporter
+    ): mixed {
+        Gate::authorize(
+            Permissions::EXPORT_TRAINING_DETAIL
+        );
+
+        $this->validateDateFilters();
+
+        return $exporter->rekap(
+            $this->filters()
+        );
+    }
+
+    public function render(): View
     {
-        $fileName = 'Training_Report_' . date('Ymd_His') . '.csv';
-        $data = $this->buildQuery()->get();
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_DETAIL
+        );
 
-        return response()->streamDownload(function () use ($data) {
-            echo "\xEF\xBB\xBF";
-            echo "sep=;\n";
-            echo "REKAPITULASI DURASI PELATIHAN KARYAWAN;\n";
-            $periode = ($this->date_from && $this->date_to)
-                ? Carbon::parse($this->date_from)->format('d/m/Y') . ' s/d ' . Carbon::parse($this->date_to)->format('d/m/Y')
-                : 'Semua Periode';
+        $report = app(
+            TrainingDetailReportQuery::class
+        );
 
-            echo "Periode: ;" . $periode . "\n";
-            echo "Tanggal Cetak: ;" . now()->timezone('Asia/Jakarta')->format('d/m/Y H:i') . " WIB\n\n";
+        $rows = $report
+            ->rows($this->filters())
+            ->paginate(self::ROWS_PER_PAGE);
 
-            echo "NIK;Nama Karyawan;Departemen;Judul Training;Trainer;Held By;Activities;Skill;Tanggal;Jam Mulai;Jam Selesai;Durasi;Biaya;Score;Sertifikat\n";
+        $stats = $report->stats(
+            $this->filters()
+        );
 
-            foreach ($data as $row) {
-                $trainer = '-';
-                if ($row->trainer_internal_name) {
-                    // Jika internal, gabungkan NIK dan Nama
-                    $trainer = ($row->trainer_internal_nik ? $row->trainer_internal_nik . ' - ' : '') . $row->trainer_internal_name;
-                } elseif ($row->trainer_external_name) {
-                    // Jika external, pakai nama external
-                    $trainer = $row->trainer_external_name;
-                }
+        $this->syncScoreInputs($rows);
 
-                $duration = 0;
-                if ($row->start_time && $row->finish_time) {
-                    $start = Carbon::parse($row->start_time);
-                    $end = Carbon::parse($row->finish_time);
-                    $duration = round($start->diffInMinutes($end) / 60, 1);
-                }
+        $totalMinutes = (float) (
+            $stats->total_minutes ?? 0
+        );
 
-                $line = [
-                    $row->nik,
-                    $row->employee_name,
-                    $row->department ?? 'N/A',
-                    $row->title,
-                    $trainer,
-                    $row->held_by,
-                    $row->activity_name,
-                    $row->skill_name,
-                    $row->training_date,
-                    $row->start_time,
-                    $row->finish_time,
-                    str_replace('.', ',', $duration),
-                    $row->fee,
-                    $row->score ?? 0,
-                    $row->is_certified
-                ];
+        return view(
+            'components.trainingdetail.⚡trainingdetail.trainingdetail',
+            [
+                'rows' => $rows,
+                'total_attendances' => (int) (
+                    $stats->total_attendances ?? 0
+                ),
+                'total_unique_trainings' => (int) (
+                    $stats->total_unique_trainings ?? 0
+                ),
+                'total_hours' => number_format(
+                    $totalMinutes / 60,
+                    1,
+                    ',',
+                    '.'
+                ),
+                'allTitles' => $report->titles(),
+                'trainerList' => $report->trainers(),
+            ]
+        );
+    }
 
-                $cleanLine = array_map(fn($val) => '"' . str_replace('"', '""', $val ?? '') . '"', $line);
-                echo implode(';', $cleanLine) . "\n";
+    private function filters(): array
+    {
+        return [
+            'search' => trim($this->search),
+            'date_from' => $this->date_from,
+            'date_to' => $this->date_to,
+            'title_filter' => $this->singleSelectValue(
+                $this->title_filter
+            ),
+            'trainer_filter' => $this->singleSelectValue(
+                $this->trainer_filter
+            ),
+        ];
+    }
+
+    private function validateDateFilters(): void
+    {
+        $this->validate(
+            [
+                'date_from' => [
+                    'nullable',
+                    'date',
+                ],
+                'date_to' => [
+                    'nullable',
+                    'date',
+                    'after_or_equal:date_from',
+                ],
+            ],
+            [
+                'date_from.date' =>
+                'Tanggal mulai tidak valid.',
+                'date_to.date' =>
+                'Tanggal sampai tidak valid.',
+                'date_to.after_or_equal' =>
+                'Tanggal sampai tidak boleh lebih kecil dari tanggal mulai.',
+            ]
+        );
+    }
+
+    private function validateScore(
+        mixed $value
+    ): void {
+        Validator::make(
+            [
+                'score' => $value,
+            ],
+            [
+                'score' => [
+                    'nullable',
+                    'integer',
+                    'min:0',
+                    'max:100',
+                ],
+            ],
+            [
+                'score.integer' =>
+                'Score harus berupa angka bulat.',
+                'score.min' =>
+                'Score tidak boleh kurang dari 0.',
+                'score.max' =>
+                'Score tidak boleh lebih dari 100.',
+            ]
+        )->validate();
+    }
+
+    private function scoreValidationMessage(
+        ValidationException $exception
+    ): string {
+        return $exception->validator
+            ->errors()
+            ->first('score');
+    }
+
+    private function syncScoreInputs(
+        LengthAwarePaginator $rows
+    ): void {
+        $visibleParticipantIds = [];
+
+        foreach ($rows as $row) {
+            $participantId =
+                (int) $row->participant_id;
+
+            $visibleParticipantIds[] =
+                $participantId;
+
+            if (
+                array_key_exists(
+                    $participantId,
+                    $this->scores
+                )
+            ) {
+                continue;
             }
-        }, $fileName);
+
+            $score = $row->score === null
+                ? null
+                : (int) $row->score;
+
+            $this->scores[$participantId] =
+                $score;
+
+            $this->last_valid_scores[$participantId] = $score;
+        }
+
+        $visibleKeys = array_flip(
+            $visibleParticipantIds
+        );
+
+        $this->scores = array_intersect_key(
+            $this->scores,
+            $visibleKeys
+        );
+
+        $this->last_valid_scores =
+            array_intersect_key(
+                $this->last_valid_scores,
+                $visibleKeys
+            );
     }
 
-    public function exportRekap()
-    {
-        $fileName = 'Rekap_Jam_Training_Seluruh_Karyawan_' . date('Ymd_His') . '.csv';
-
-        // 1. Ambil data karyawan (Sudah diperbaiki penutup query-nya)
-        $allEmployees = DB::table('employees as e')
-            ->leftJoin('organizations as o', 'e.org_id', '=', 'o.id')
-            ->leftJoin('positions as p', 'e.position_id', '=', 'p.id')
-            ->select('e.id as employee_id', 'e.nik', 'e.name as employee_name', 'e.status_employee', 'o.org_name as department', 'p.position_name')
-            ->where('e.status', 'Active')
-            ->whereNull('e.deleted_at')
-            ->orderBy('o.org_name', 'asc')
-            ->orderBy('e.name', 'asc')
-            ->get(); // <-- Tadi kurang ini
-
-        // 2. Ambil data jam training
-        $trainingLogs = DB::table('training_participants as tp')
-            ->join('trainings as t', 'tp.training_id', '=', 't.id')
-            ->whereNull('t.deleted_at')
-            ->when($this->date_from, fn($q) => $q->whereDate('t.training_date', '>=', $this->date_from))
-            ->when($this->date_to, fn($q) => $q->whereDate('t.training_date', '<=', $this->date_to))
-            ->select('tp.employee_id', 't.start_time', 't.finish_time')
-            ->get()
-            ->groupBy('employee_id');
-
-        $periode = ($this->date_from && $this->date_to) ? $this->date_from . ' s/d ' . $this->date_to : 'Semua Periode';
-        $namaUser = Auth::user()->name ?? 'Admin';
-        $waktuCetak = now()->timezone('Asia/Jakarta')->format('d/m/Y H:i');
-
-        return response()->streamDownload(function () use ($allEmployees, $trainingLogs, $periode, $namaUser, $waktuCetak) {
-            echo "\xEF\xBB\xBF";
-            echo "sep=;\n";
-
-            echo "REKAPITULASI TOTAL JAM PELATIHAN KARYAWAN AKTIF;\n";
-            echo "Periode: ;" . $periode . "\n";
-            echo "Tanggal Cetak: ;" . $waktuCetak . " WIB\n";
-            echo "Dicetak Oleh: ;" . $namaUser . "\n\n";
-
-            echo "NIK;Nama;Status;Departemen;Posisi;Jam Training\n";
-
-            foreach ($allEmployees as $emp) {
-                $totalMinutes = 0;
-                if (isset($trainingLogs[$emp->employee_id])) {
-                    foreach ($trainingLogs[$emp->employee_id] as $log) {
-                        if ($log->start_time && $log->finish_time) {
-                            $totalMinutes += Carbon::parse($log->start_time)->diffInMinutes(Carbon::parse($log->finish_time));
-                        }
-                    }
-                }
-
-                $hours = floor($totalMinutes / 60);
-                $minutes = $totalMinutes % 60;
-                $decimalHours = round($totalMinutes / 60, 2);
-                $totalString = $totalMinutes > 0 ? "{$hours} Jam {$minutes} Menit (" . str_replace('.', ',', $decimalHours) . " Jam)" : "0 Jam";
-
-                $line = [$emp->nik, $emp->employee_name, $emp->status_employee ?? '-', $emp->department ?? 'N/A', $emp->position_name ?? 'N/A', $totalString];
-                $cleanLine = array_map(fn($val) => '"' . str_replace('"', '""', $val ?? '') . '"', $line);
-                echo implode(';', $cleanLine) . "\n";
-            }
-        }, $fileName);
+    private function normalizeSingleSelect(
+        array &$values
+    ): void {
+        $values = collect($values)
+            ->map(
+                static fn(mixed $value): string =>
+                trim((string) $value)
+            )
+            ->filter(
+                static fn(string $value): bool =>
+                $value !== ''
+            )
+            ->unique()
+            ->take(1)
+            ->values()
+            ->all();
     }
 
-    public function render()
-    {
-        $query = $this->buildQuery();
-        $statsData = (clone $query)->get();
-        $total_minutes = $statsData->sum(fn($row) => Carbon::parse($row->start_time)->diffInMinutes(Carbon::parse($row->finish_time)));
-
-        return view('components.trainingdetail.⚡trainingdetail.trainingdetail', [
-            'rows' => $query->paginate($this->perPage),
-            'total_trainings' => $statsData->count(),
-            'total_hours' => number_format($total_minutes / 60, 1, ',', '.'),
-            'allTitles' => DB::table('trainings')->select('title')->distinct()->orderBy('title', 'asc')->get()
-            ->whereNull('deleted_at')
-        ]);
+    private function singleSelectValue(
+        array $values
+    ): string {
+        return trim(
+            (string) ($values[0] ?? '')
+        );
     }
 };

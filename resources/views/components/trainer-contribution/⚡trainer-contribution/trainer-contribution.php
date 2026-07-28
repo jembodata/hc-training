@@ -1,211 +1,876 @@
 <?php
 
+use App\Support\Auth\Permissions;
+use Carbon\Carbon;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
-return new class extends Component
+new class extends Component
 {
     use WithPagination;
 
-    protected $paginationTheme = 'tailwind';
+    private const PER_PAGE = 10;
 
-    public $search = '';
-    public $position_filter = [];
-    public $date_from;
-    public $date_to;
-    public $showDetailModal = false;
-    public $selectedTrainerName = '';
-    public $trainerDetails = [];
+    public string $search = '';
 
-    public function updatingSearch()
+    /** @var list<string> */
+    public array $position_filter = [];
+
+    public ?string $date_from = null;
+
+    public ?string $date_to = null;
+
+    public bool $showDetailModal = false;
+
+    public string $selectedTrainerName = '';
+
+    public string $selectedTrainerToken = '';
+
+    /** @var list<array<string, mixed>> */
+    public array $trainerDetails = [];
+
+    public function mount(): void
+    {
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_CONTRIBUTION
+        );
+    }
+
+    public function updatingSearch(): void
     {
         $this->resetPage();
     }
 
-    public function selectAllPositions()
+    public function updatedPositionFilter(): void
     {
-        $this->position_filter = DB::table('positions')->pluck('position_name')->toArray();
+        $this->resetPage();
     }
 
-    public function resetFilters()
+    public function updatedDateFrom(): void
     {
-        $this->search = '';
+        $this->resetPage();
+    }
+
+    public function updatedDateTo(): void
+    {
+        $this->resetPage();
+    }
+
+    public function selectAllPositions(): void
+    {
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_CONTRIBUTION
+        );
+
+        $this->position_filter = DB::table('positions')
+            ->orderBy('position_name')
+            ->pluck('position_name')
+            ->all();
+
+        $this->resetPage();
+    }
+
+    public function clearPositions(): void
+    {
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_CONTRIBUTION
+        );
+
         $this->position_filter = [];
-        $this->date_from = null;
-        $this->date_to = null;
+
         $this->resetPage();
     }
 
-    public function mount()
+    public function resetFilters(): void
     {
-        if (!Auth::check()) {
-            return redirect()->route('login');
-        }
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_CONTRIBUTION
+        );
+
+        $this->reset([
+            'search',
+            'position_filter',
+            'date_from',
+            'date_to',
+        ]);
+
+        $this->closeDetail();
+        $this->resetPage();
     }
 
-    // 🔥 Fungsi untuk mengambil detail riwayat mengajar
-    public function showDetail($trainerName)
+    public function showDetail(string $trainerToken): void
     {
-        $this->selectedTrainerName = $trainerName;
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_CONTRIBUTION
+        );
 
-        $this->trainerDetails = DB::table('trainings as t')
-            ->leftJoin('employees as tr', 't.trainer_employee_id', '=', 'tr.id')
-            ->where(function ($q) use ($trainerName) {
-                $q->where('tr.name', $trainerName)
-                    ->orWhere('t.trainer_external_name', $trainerName);
-            })
-            ->when($this->date_from, fn($q) => $q->whereDate('training_date', '>=', $this->date_from))
-            ->when($this->date_to, fn($q) => $q->whereDate('training_date', '<=', $this->date_to))
-            ->select(
-                'title',
-                'training_date',
-                'start_time',
-                'finish_time',
-                DB::raw('TIMESTAMPDIFF(MINUTE, start_time, finish_time) as minutes')
-            )
-            ->orderBy('training_date', 'desc')
+        $this->validateFilters();
+
+        $identity = $this->decodeTrainerToken(
+            $trainerToken
+        );
+
+        $details = $this->detailQuery($identity)
+            ->orderByDesc('t.training_date')
+            ->orderByDesc('t.id')
             ->get();
+
+        $this->selectedTrainerToken =
+            $trainerToken;
+
+        $this->selectedTrainerName =
+            $this->trainerName($identity);
+
+        $this->trainerDetails = $details
+            ->map(
+                static fn(object $row): array => [
+                    'title' => (string) $row->title,
+                    'training_date' =>
+                    (string) $row->training_date,
+                    'start_time' =>
+                    (string) $row->start_time,
+                    'finish_time' =>
+                    (string) $row->finish_time,
+                    'minutes' =>
+                    (int) ($row->minutes ?? 0),
+                ]
+            )
+            ->all();
 
         $this->showDetailModal = true;
     }
 
-    private function getTrainerList()
+    public function closeDetail(): void
+    {
+        $this->showDetailModal = false;
+        $this->selectedTrainerName = '';
+        $this->selectedTrainerToken = '';
+        $this->trainerDetails = [];
+    }
+
+    public function exportCsv(): StreamedResponse
+    {
+        Gate::authorize(
+            Permissions::EXPORT_TRAINING_CONTRIBUTION
+        );
+
+        $this->validateFilters();
+
+        $rows = $this->baseQuery()->get();
+        $dateFrom = $this->date_from ?: '-';
+        $dateTo = $this->date_to ?: '-';
+
+        return response()->streamDownload(
+            function () use (
+                $rows,
+                $dateFrom,
+                $dateTo
+            ): void {
+                $stream = fopen('php://output', 'wb');
+
+                if ($stream === false) {
+                    return;
+                }
+
+                fwrite($stream, "\xEF\xBB\xBF");
+                fwrite($stream, "sep=;\n");
+
+                fputcsv(
+                    $stream,
+                    ['TRAINING CONTRIBUTION REPORT'],
+                    ';'
+                );
+
+                fputcsv(
+                    $stream,
+                    ['Periode', "{$dateFrom} s/d {$dateTo}"],
+                    ';'
+                );
+
+                fputcsv(
+                    $stream,
+                    [
+                        'Tanggal Cetak',
+                        Carbon::now('Asia/Jakarta')
+                            ->format('d/m/Y H:i')
+                            . ' WIB',
+                    ],
+                    ';'
+                );
+
+                fputcsv($stream, [], ';');
+
+                fputcsv(
+                    $stream,
+                    [
+                        'Nama Trainer',
+                        'NIK',
+                        'Position',
+                        'Organization',
+                        'Activity',
+                        'Skill',
+                        'Total Jam Mengajar',
+                    ],
+                    ';'
+                );
+
+                foreach ($rows as $row) {
+                    fputcsv(
+                        $stream,
+                        [
+                            $this->spreadsheetSafe(
+                                $row->trainer_name
+                                    ?? 'Tanpa Nama'
+                            ),
+                            $this->spreadsheetSafe(
+                                $row->nik ?? '-'
+                            ),
+                            $this->spreadsheetSafe(
+                                $row->position ?? '-'
+                            ),
+                            $this->spreadsheetSafe(
+                                $row->organization ?? '-'
+                            ),
+                            $this->spreadsheetSafe(
+                                $row->activity_name ?? '-'
+                            ),
+                            $this->spreadsheetSafe(
+                                $row->skill_name ?? '-'
+                            ),
+                            round(
+                                ((int) ($row->total_minutes ?? 0))
+                                    / 60,
+                                2
+                            ),
+                        ],
+                        ';'
+                    );
+                }
+
+                fclose($stream);
+            },
+            'Training_Contribution_'
+                . now()->format('Ymd_His')
+                . '.csv',
+            [
+                'Content-Type' =>
+                'text/csv; charset=UTF-8',
+            ]
+        );
+    }
+
+    public function exportDetailCsv(): StreamedResponse
+    {
+        Gate::authorize(
+            Permissions::EXPORT_TRAINING_CONTRIBUTION
+        );
+
+        $this->validateFilters();
+
+        if ($this->selectedTrainerToken === '') {
+            abort(404);
+        }
+
+        $identity = $this->decodeTrainerToken(
+            $this->selectedTrainerToken
+        );
+
+        $trainerName = $this->trainerName($identity);
+
+        $rows = $this->detailQuery($identity)
+            ->orderByDesc('t.training_date')
+            ->orderByDesc('t.id')
+            ->get();
+
+        $dateFrom = $this->date_from ?: '-';
+        $dateTo = $this->date_to ?: '-';
+
+        $fileName = 'Trainer_Detail_'
+            . Str::slug($trainerName, '_')
+            . '_'
+            . now()->format('Ymd_His')
+            . '.csv';
+
+        return response()->streamDownload(
+            function () use (
+                $rows,
+                $trainerName,
+                $dateFrom,
+                $dateTo
+            ): void {
+                $stream = fopen('php://output', 'wb');
+
+                if ($stream === false) {
+                    return;
+                }
+
+                fwrite($stream, "\xEF\xBB\xBF");
+                fwrite($stream, "sep=;\n");
+
+                fputcsv(
+                    $stream,
+                    ['DETAIL RIWAYAT MENGAJAR TRAINER'],
+                    ';'
+                );
+
+                fputcsv(
+                    $stream,
+                    [
+                        'Nama Trainer',
+                        $this->spreadsheetSafe($trainerName),
+                    ],
+                    ';'
+                );
+
+                fputcsv(
+                    $stream,
+                    ['Periode', "{$dateFrom} s/d {$dateTo}"],
+                    ';'
+                );
+
+                fputcsv($stream, [], ';');
+
+                fputcsv(
+                    $stream,
+                    [
+                        'Topik Pelatihan',
+                        'Tanggal',
+                        'Jam Mulai',
+                        'Jam Selesai',
+                        'Durasi Jam',
+                    ],
+                    ';'
+                );
+
+                foreach ($rows as $row) {
+                    fputcsv(
+                        $stream,
+                        [
+                            $this->spreadsheetSafe(
+                                $row->title ?? '-'
+                            ),
+                            $row->training_date ?? '-',
+                            $row->start_time ?? '-',
+                            $row->finish_time ?? '-',
+                            round(
+                                ((int) ($row->minutes ?? 0))
+                                    / 60,
+                                2
+                            ),
+                        ],
+                        ';'
+                    );
+                }
+
+                fclose($stream);
+            },
+            $fileName,
+            [
+                'Content-Type' =>
+                'text/csv; charset=UTF-8',
+            ]
+        );
+    }
+
+    public function with(): array
+    {
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_CONTRIBUTION
+        );
+
+        $contributions = $this->baseQuery()
+            ->paginate(self::PER_PAGE);
+
+        $contributions->through(
+            function (object $row): object {
+                $row->trainer_token =
+                    $this->encodeTrainerToken(
+                        isset($row->trainer_employee_id)
+                            ? (int) $row->trainer_employee_id
+                            : null,
+                        isset($row->trainer_external_name)
+                            ? (string) $row->trainer_external_name
+                            : null
+                    );
+
+                return $row;
+            }
+        );
+
+        return [
+            'contributions' => $contributions,
+
+            'trainerList' => DB::table('trainings as t')
+                ->leftJoin(
+                    'employees as tr',
+                    't.trainer_employee_id',
+                    '=',
+                    'tr.id'
+                )
+                ->whereNull('t.deleted_at')
+                ->selectRaw(
+                    'COALESCE(tr.name, t.trainer_external_name) as name'
+                )
+                ->whereNotNull(
+                    DB::raw(
+                        'COALESCE(tr.name, t.trainer_external_name)'
+                    )
+                )
+                ->distinct()
+                ->orderBy('name')
+                ->get(),
+
+            'positionList' => DB::table('positions')
+                ->orderBy('position_name')
+                ->get(),
+        ];
+    }
+
+    private function baseQuery(): Builder
+    {
+        if ($this->position_filter !== []) {
+            return $this->internalTrainerMonitoringQuery();
+        }
+
+        return DB::table('trainings as t')
+            ->leftJoin(
+                'employees as tr',
+                't.trainer_employee_id',
+                '=',
+                'tr.id'
+            )
+            ->leftJoin(
+                'organizations as o',
+                'tr.org_id',
+                '=',
+                'o.id'
+            )
+            ->leftJoin(
+                'positions as p',
+                'tr.position_id',
+                '=',
+                'p.id'
+            )
+            ->whereNull('t.deleted_at')
+            ->select([
+                'tr.id as trainer_employee_id',
+                DB::raw(
+                    'CASE WHEN tr.id IS NULL '
+                        . 'THEN t.trainer_external_name '
+                        . 'ELSE NULL END as trainer_external_name'
+                ),
+                DB::raw(
+                    'COALESCE(tr.name, t.trainer_external_name) '
+                        . 'as trainer_name'
+                ),
+                'tr.nik',
+                DB::raw(
+                    'COALESCE(p.position_name, "EXTERNAL") '
+                        . 'as position'
+                ),
+                DB::raw(
+                    'COALESCE(o.org_name, "-") '
+                        . 'as organization'
+                ),
+                DB::raw(
+                    'COALESCE('
+                        . 'GROUP_CONCAT(DISTINCT t.activity_name '
+                        . 'ORDER BY t.activity_name SEPARATOR ", "), '
+                        . '"-") as activity_name'
+                ),
+                DB::raw(
+                    'COALESCE('
+                        . 'GROUP_CONCAT(DISTINCT t.skill_name '
+                        . 'ORDER BY t.skill_name SEPARATOR ", "), '
+                        . '"-") as skill_name'
+                ),
+                DB::raw(
+                    'SUM(COALESCE(GREATEST('
+                        . 'TIMESTAMPDIFF('
+                        . 'MINUTE, t.start_time, t.finish_time'
+                        . '), 0), 0)) as total_minutes'
+                ),
+            ])
+            ->whereNotNull(
+                DB::raw(
+                    'COALESCE(tr.name, t.trainer_external_name)'
+                )
+            )
+            ->when(
+                $this->search !== '',
+                function (Builder $query): void {
+                    $search = '%' . $this->search . '%';
+
+                    $query->where(
+                        function (Builder $subQuery) use (
+                            $search
+                        ): void {
+                            $subQuery
+                                ->where('tr.name', 'like', $search)
+                                ->orWhere(
+                                    't.trainer_external_name',
+                                    'like',
+                                    $search
+                                );
+                        }
+                    );
+                }
+            )
+            ->when(
+                $this->date_from,
+                fn(Builder $query) => $query->whereDate(
+                    't.training_date',
+                    '>=',
+                    $this->date_from
+                )
+            )
+            ->when(
+                $this->date_to,
+                fn(Builder $query) => $query->whereDate(
+                    't.training_date',
+                    '<=',
+                    $this->date_to
+                )
+            )
+            ->groupBy([
+                'tr.id',
+                'tr.name',
+                'tr.nik',
+                'p.position_name',
+                'o.org_name',
+                't.trainer_external_name',
+            ])
+            ->orderByDesc('total_minutes')
+            ->orderBy('trainer_name');
+    }
+
+    private function internalTrainerMonitoringQuery(): Builder
+    {
+        return DB::table('employees as e')
+            ->leftJoin(
+                'positions as p',
+                'e.position_id',
+                '=',
+                'p.id'
+            )
+            ->leftJoin(
+                'organizations as o',
+                'e.org_id',
+                '=',
+                'o.id'
+            )
+            ->leftJoin(
+                'trainings as t',
+                function ($join): void {
+                    $join->on(
+                        'e.id',
+                        '=',
+                        't.trainer_employee_id'
+                    )
+                        ->whereNull('t.deleted_at');
+
+                    if ($this->date_from) {
+                        $join->whereDate(
+                            't.training_date',
+                            '>=',
+                            $this->date_from
+                        );
+                    }
+
+                    if ($this->date_to) {
+                        $join->whereDate(
+                            't.training_date',
+                            '<=',
+                            $this->date_to
+                        );
+                    }
+                }
+            )
+            ->whereNull('e.deleted_at')
+            ->whereIn(
+                'p.position_name',
+                $this->position_filter
+            )
+            ->select([
+                'e.id as trainer_employee_id',
+                DB::raw(
+                    'NULL as trainer_external_name'
+                ),
+                'e.name as trainer_name',
+                'e.nik',
+                DB::raw(
+                    'COALESCE(p.position_name, "-") '
+                        . 'as position'
+                ),
+                DB::raw(
+                    'COALESCE(o.org_name, "-") '
+                        . 'as organization'
+                ),
+                DB::raw(
+                    'COALESCE('
+                        . 'GROUP_CONCAT(DISTINCT t.activity_name '
+                        . 'ORDER BY t.activity_name SEPARATOR ", "), '
+                        . '"-") as activity_name'
+                ),
+                DB::raw(
+                    'COALESCE('
+                        . 'GROUP_CONCAT(DISTINCT t.skill_name '
+                        . 'ORDER BY t.skill_name SEPARATOR ", "), '
+                        . '"-") as skill_name'
+                ),
+                DB::raw(
+                    'SUM(COALESCE(GREATEST('
+                        . 'TIMESTAMPDIFF('
+                        . 'MINUTE, t.start_time, t.finish_time'
+                        . '), 0), 0)) as total_minutes'
+                ),
+            ])
+            ->when(
+                $this->search !== '',
+                fn(Builder $query) => $query->where(
+                    'e.name',
+                    'like',
+                    '%' . $this->search . '%'
+                )
+            )
+            ->groupBy([
+                'e.id',
+                'e.name',
+                'e.nik',
+                'p.position_name',
+                'o.org_name',
+            ])
+            ->orderByDesc('total_minutes')
+            ->orderBy('e.name');
+    }
+
+    /**
+     * @param array{id: ?int, external: ?string} $identity
+     */
+    private function detailQuery(array $identity): Builder
     {
         return DB::table('trainings as t')
-            ->leftJoin('employees as tr', 't.trainer_employee_id', '=', 'tr.id')
-            ->select(DB::raw('COALESCE(tr.name, t.trainer_external_name) as name'))
-            ->distinct()
-            ->whereNotNull(DB::raw('COALESCE(tr.name, t.trainer_external_name)'))
-            ->orderBy('name', 'asc')
-            ->get();
+            ->whereNull('t.deleted_at')
+            ->when(
+                $identity['id'] !== null,
+                fn(Builder $query) => $query->where(
+                    't.trainer_employee_id',
+                    $identity['id']
+                ),
+                fn(Builder $query) => $query
+                    ->whereNull('t.trainer_employee_id')
+                    ->where(
+                        't.trainer_external_name',
+                        $identity['external']
+                    )
+            )
+            ->when(
+                $this->date_from,
+                fn(Builder $query) => $query->whereDate(
+                    't.training_date',
+                    '>=',
+                    $this->date_from
+                )
+            )
+            ->when(
+                $this->date_to,
+                fn(Builder $query) => $query->whereDate(
+                    't.training_date',
+                    '<=',
+                    $this->date_to
+                )
+            )
+            ->select([
+                't.id',
+                't.title',
+                't.training_date',
+                't.start_time',
+                't.finish_time',
+                DB::raw(
+                    'COALESCE(GREATEST('
+                        . 'TIMESTAMPDIFF('
+                        . 'MINUTE, t.start_time, t.finish_time'
+                        . '), 0), 0) as minutes'
+                ),
+            ]);
     }
 
-    private function getBaseQuery()
-    {
-        // Mode Monitoring: Jika Jabatan dipilih (Manager/Supervisor)
-        if (!empty($this->position_filter)) {
-            return DB::table('employees as e')
-                ->leftJoin('positions as p', 'e.position_id', '=', 'p.id')
-                ->leftJoin('organizations as o', 'e.org_id', '=', 'o.id')
-                ->leftJoin('trainings as t', 'e.id', '=', 't.trainer_employee_id')
-                ->select(
-                    'e.name as trainer_name',
-                    'e.nik',
-                    DB::raw('COALESCE(p.position_name, "-") as position'),
-                    DB::raw('COALESCE(o.org_name, "-") as organization'),
-                    DB::raw("COALESCE(GROUP_CONCAT(DISTINCT t.activity_name SEPARATOR ', '), '-') as activity_name"),
-                    DB::raw("COALESCE(GROUP_CONCAT(DISTINCT t.skill_name SEPARATOR ', '), '-') as skill_name"), // Kolom ini sudah ada
-                    DB::raw('SUM(COALESCE(TIMESTAMPDIFF(MINUTE, t.start_time, t.finish_time), 0)) as total_minutes')
-                )
-                ->whereIn('p.position_name', (array)$this->position_filter)
-                ->when($this->search, fn($q) => $q->where('e.name', 'like', '%' . $this->search . '%'))
-                ->when($this->date_from, fn($q) => $q->where(fn($sub) => $sub->whereDate('t.training_date', '>=', $this->date_from)->orWhereNull('t.training_date')))
-                ->when($this->date_to, fn($q) => $q->where(fn($sub) => $sub->whereDate('t.training_date', '<=', $this->date_to)->orWhereNull('t.training_date')))
-                ->groupBy('e.id', 'e.name', 'e.nik', 'p.position_name', 'o.org_name')
-                ->orderByDesc('total_minutes')
-                ->orderBy('e.name', 'asc');
-        } else {
-            // Mode Default: Tampilkan semua yang pernah mengajar (Internal + External)
-            return DB::table('trainings as t')
-                ->leftJoin('employees as tr', 't.trainer_employee_id', '=', 'tr.id')
-                ->leftJoin('organizations as o', 'tr.org_id', '=', 'o.id')
-                ->leftJoin('positions as p', 'tr.position_id', '=', 'p.id')
-                ->select(
-                    DB::raw('COALESCE(tr.name, t.trainer_external_name) as trainer_name'),
-                    'tr.nik',
-                    DB::raw('COALESCE(p.position_name, "EXTERNAL") as position'),
-                    DB::raw('COALESCE(o.org_name, "-") as organization'),
-                    DB::raw("COALESCE(GROUP_CONCAT(DISTINCT t.activity_name SEPARATOR ', '), '-') as activity_name"),
-                    DB::raw("COALESCE(GROUP_CONCAT(DISTINCT t.skill_name SEPARATOR ', '), '-') as skill_name"), // TAMBAHKAN BARIS INI
-                    DB::raw('SUM(TIMESTAMPDIFF(MINUTE, t.start_time, t.finish_time)) as total_minutes')
-                )
-                ->when($this->search, function ($q) {
-                    $q->where('tr.name', 'like', '%' . $this->search . '%')
-                        ->orWhere('t.trainer_external_name', 'like', '%' . $this->search . '%');
-                })
-                ->groupBy('tr.name', 'tr.nik', 't.trainer_external_name', 'o.org_name', 'p.position_name')
-                ->orderByDesc('total_minutes')
-                ->orderBy(DB::raw('COALESCE(tr.name, t.trainer_external_name)'), 'asc');
+    /**
+     * @return array{id: ?int, external: ?string}
+     */
+    private function decodeTrainerToken(
+        string $token
+    ): array {
+        $base64 = strtr($token, '-_', '+/');
+        $padding = strlen($base64) % 4;
+
+        if ($padding > 0) {
+            $base64 .= str_repeat('=', 4 - $padding);
         }
+
+        $decoded = base64_decode($base64, true);
+
+        abort_unless($decoded !== false, 404);
+
+        $identity = json_decode(
+            $decoded,
+            true
+        );
+
+        abort_unless(is_array($identity), 404);
+
+        $id = isset($identity['id'])
+            && is_numeric($identity['id'])
+            ? (int) $identity['id']
+            : null;
+
+        $external = isset($identity['external'])
+            && is_string($identity['external'])
+            ? trim($identity['external'])
+            : null;
+
+        if ($external === '') {
+            $external = null;
+        }
+
+        abort_unless(
+            ($id !== null && $id > 0)
+                || $external !== null,
+            404
+        );
+
+        if ($id !== null) {
+            $exists = DB::table('employees')
+                ->where('id', $id)
+                ->whereNull('deleted_at')
+                ->exists();
+
+            abort_unless($exists, 404);
+
+            return [
+                'id' => $id,
+                'external' => null,
+            ];
+        }
+
+        abort_if(mb_strlen($external) > 255, 404);
+
+        return [
+            'id' => null,
+            'external' => $external,
+        ];
     }
 
-    public function exportExcel()
-    {
-        return response()->streamDownload(function () {
-            $data = $this->getBaseQuery()->get();
+    private function encodeTrainerToken(
+        ?int $employeeId,
+        ?string $externalName
+    ): string {
+        $json = json_encode(
+            [
+                'id' => $employeeId,
+                'external' => $employeeId === null
+                    ? $externalName
+                    : null,
+            ],
+            JSON_THROW_ON_ERROR
+        );
 
-            // 1. JUDUL LAPORAN
-            echo "TRAINER CONTRIBUTION REPORT\n";
-            echo "Periode:\t" . ($this->date_from ?? '-') . " s/d " . ($this->date_to ?? '-') . "\n";
-           echo "Tanggal Cetak:\t" . \Carbon\Carbon::now('Asia/Jakarta')->translatedFormat('d F Y | H:i') . " WIB\n";
-
-            // 2. Header Tabel
-            echo "Nama Trainer\tPosition\tOrganization\tActivity\tSkill\tTotal Jam Mengajar\n";
-
-            foreach ($data as $row) {
-                $hours = round(($row->total_minutes ?? 0) / 60, 2);
-
-                echo ($row->trainer_name ?? 'Tanpa Nama') . "\t" .
-                    ($row->position ?? '-') . "\t" .
-                    ($row->organization ?? '-') . "\t" .
-                    ($row->activity_name ?? '-') . "\t" .
-                    ($row->skill_name ?? '-') . "\t" .
-                    str_replace('.', ',', $hours) . " Jam\n";
-            }
-        }, 'Trainer_Contribution_Report_' . date('Ymd') . '.xls');
+        return rtrim(
+            strtr(
+                base64_encode($json),
+                '+/',
+                '-_'
+            ),
+            '='
+        );
     }
 
-    public function exportDetailExcel()
+    /**
+     * @param array{id: ?int, external: ?string} $identity
+     */
+    private function trainerName(array $identity): string
     {
-        if (!$this->selectedTrainerName) return;
+        if ($identity['id'] !== null) {
+            return (string) DB::table('employees')
+                ->where('id', $identity['id'])
+                ->value('name');
+        }
 
-        $fileName = 'Detail_Mengajar_' . str_replace(' ', '_', $this->selectedTrainerName) . '_' . date('Ymd') . '.xls';
-        $data = $this->trainerDetails;
-
-        return response()->streamDownload(function () use ($data) {
-            // 1. JUDUL DETAIL
-            echo "DETAIL RIWAYAT MENGAJAR TRAINER\n";
-            echo "Nama Trainer:\t" . $this->selectedTrainerName . "\n";
-            echo "Periode:\t" . ($this->date_from ?? '-') . " s/d " . ($this->date_to ?? '-') . "\n\n";
-
-            // 2. Header Tabel
-            echo "Topik Pelatihan\tTanggal\tJam Mulai\tJam Selesai\tDurasi (Jam)\n";
-
-            foreach ($data as $row) {
-                $durationHours = round(($row->minutes ?? 0) / 60, 2);
-
-                echo ($row->title ?? '-') . "\t" .
-                    ($row->training_date ?? '-') . "\t" .
-                    ($row->start_time ?? '-') . "\t" .
-                    ($row->finish_time ?? '-') . "\t" .
-                    str_replace('.', ',', $durationHours) . " Jam\n";
-            }
-        }, $fileName);
+        return (string) $identity['external'];
     }
 
-    public function updatedPositionFilter()
+    private function validateFilters(): void
     {
-        $this->resetPage();
-    }
-    public function render()
-    {
-        $positionList = DB::table('positions')
-            ->orderBy('position_name', 'asc')
-            ->get();
-        $trainerList = DB::table('trainings as t')
-            ->leftJoin('employees as tr', 't.trainer_employee_id', '=', 'tr.id')
-            ->select(DB::raw('COALESCE(tr.name, t.trainer_external_name) as name'))
-            ->distinct()
-            ->whereNotNull(DB::raw('COALESCE(tr.name, t.trainer_external_name)'))
-            ->orderBy('name', 'asc')
-            ->get();
+        $this->search = trim($this->search);
 
-        return view('components.trainer-contribution.⚡trainer-contribution.trainer-contribution', [
-            'contributions' => $this->getBaseQuery()->paginate(10),
-            'trainerList' => $this->getTrainerList(),
-            'positionList' => DB::table('positions')->orderBy('position_name', 'asc')->get()
+        $this->position_filter = array_values(
+            array_unique(
+                array_filter(
+                    array_map(
+                        static fn(mixed $value): string =>
+                        trim((string) $value),
+                        $this->position_filter
+                    )
+                )
+            )
+        );
+
+        $this->validate([
+            'search' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'position_filter' => [
+                'array',
+            ],
+
+            'position_filter.*' => [
+                'string',
+                'distinct',
+                Rule::exists(
+                    'positions',
+                    'position_name'
+                ),
+            ],
+
+            'date_from' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+
+            'date_to' => [
+                'nullable',
+                'date_format:Y-m-d',
+                'after_or_equal:date_from',
+            ],
         ]);
+    }
+
+    private function spreadsheetSafe(
+        mixed $value
+    ): string {
+        $value = trim((string) $value);
+
+        if (
+            $value !== ''
+            && in_array(
+                $value[0],
+                ['=', '+', '-', '@'],
+                true
+            )
+        ) {
+            return "'{$value}";
+        }
+
+        return $value;
     }
 };

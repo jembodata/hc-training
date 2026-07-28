@@ -1,230 +1,427 @@
-<div class="min-h-screen bg-white p-4 lg:p-8 font-sans">
-    {{-- NOTIFIKASI MELAYANG --}}
-    @if (session()->has('status'))
-    <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 3000)"
-        class="fixed top-5 right-5 z-[200] bg-emerald-600 text-white px-8 py-4 rounded-[2rem] shadow-2xl shadow-emerald-200 font-black text-[11px] uppercase tracking-widest animate-in fade-in slide-in-from-top-4">
-        ✅ {{ session('status') }}
+<div id="training-detail-content" class="w-full space-y-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div class="min-w-0">
+            <flux:heading size="xl" level="1">
+                Training detail report
+            </flux:heading>
+
+            <flux:subheading class="mt-1">
+                Riwayat training, kehadiran, durasi belajar, score, dan biaya karyawan.
+            </flux:subheading>
+        </div>
+
+        @can(\App\Support\Auth\Permissions::EXPORT_TRAINING_DETAIL)
+            <div class="flex flex-wrap items-center gap-2">
+                <flux:button wire:click="exportRekap" wire:loading.attr="disabled" wire:target="exportRekap"
+                    size="sm">
+                    <span wire:loading.remove wire:target="exportRekap">
+                        Export rekap jam
+                    </span>
+
+                    <span wire:loading wire:target="exportRekap">
+                        Menyiapkan...
+                    </span>
+                </flux:button>
+
+                <flux:button wire:click="exportExcel" wire:loading.attr="disabled" wire:target="exportExcel"
+                    variant="primary" size="sm">
+                    <span wire:loading.remove wire:target="exportExcel">
+                        Export detail
+                    </span>
+
+                    <span wire:loading wire:target="exportExcel">
+                        Menyiapkan...
+                    </span>
+                </flux:button>
+            </div>
+        @endcan
     </div>
-    @endif
 
-    <div class="max-w-7xl mx-auto space-y-8">
-        {{-- HEADER SECTION: KOTAK JUDUL (Seragam dengan Gambar 2) --}}
-        <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <div class="flex flex-col md:flex-row justify-between items-center gap-6">
-                <div>
-                    <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Training Detail Report</h2>
-                    <p class="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">
-                        Laporan detail riwayat pelatihan karyawan
-                    </p>
+    <flux:separator variant="subtle" />
+
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <flux:card class="space-y-2">
+            <flux:text class="text-xs font-semibold uppercase">
+                Total kehadiran
+            </flux:text>
+
+            <flux:heading size="xl">
+                {{ number_format($total_attendances) }}
+            </flux:heading>
+        </flux:card>
+
+        <flux:card class="space-y-2">
+            <flux:text class="text-xs font-semibold uppercase">
+                Training
+            </flux:text>
+
+            <flux:heading size="xl">
+                {{ number_format($total_unique_trainings) }}
+            </flux:heading>
+        </flux:card>
+
+        <flux:card class="space-y-2">
+            <flux:text class="text-xs font-semibold uppercase">
+                Durasi belajar
+            </flux:text>
+
+            <flux:heading size="xl">
+                 {{ $total_hours }}
+                 <span class="text-sm text-zinc-500">
+                    jam
+                </span>
+            </flux:heading>
+        </flux:card>
+    </div>
+
+    {{-- <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <flux:card class="space-y-2">
+            <flux:text class="text-sm font-medium">
+                Total kehadiran
+            </flux:text>
+
+            <div class="text-3xl font-semibold tabular-nums text-zinc-950 dark:text-white">
+                {{ number_format($total_attendances) }}
+            </div>
+
+            <flux:text class="text-xs">
+                Jumlah kehadiran pada hasil filter.
+            </flux:text>
+        </flux:card>
+
+        <flux:card class="space-y-2">
+            <flux:text class="text-sm font-medium">
+                Training unik
+            </flux:text>
+
+            <div class="text-3xl font-semibold tabular-nums text-zinc-950 dark:text-white">
+                {{ number_format($total_unique_trainings) }}
+            </div>
+
+            <flux:text class="text-xs">
+                Jumlah judul training yang berbeda.
+            </flux:text>
+        </flux:card>
+
+        <flux:card class="space-y-2">
+            <flux:text class="text-sm font-medium">
+                Durasi belajar
+            </flux:text>
+
+            <div class="flex items-baseline gap-2">
+                <div class="text-3xl font-semibold tabular-nums text-zinc-950 dark:text-white">
+                    {{ $total_hours }}
                 </div>
 
-                <div class="flex gap-3">
-                    {{-- Tombol Rekap Jam --}}
-                    <button wire:click="exportRekap" wire:loading.attr="disabled"
-                        class="bg-blue-600 hover:bg-blue-700 text-white font-black py-4 px-8 rounded-2xl shadow-lg shadow-blue-100 transition-all active:scale-95 text-[10px] tracking-widest uppercase flex items-center gap-3">
-                        <span wire:loading wire:target="exportRekap" class="animate-spin text-xs">🌀</span>
-                        <svg wire:loading.remove wire:target="exportRekap" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        REKAP JAM
-                    </button>
+                <span class="text-sm text-zinc-500">
+                    jam
+                </span>
+            </div>
 
-                    {{-- Tombol Export CSV --}}
-                    <button wire:click="exportExcel" wire:loading.attr="disabled"
-                        class="bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 px-8 rounded-2xl shadow-lg shadow-emerald-100 transition-all active:scale-95 text-[10px] tracking-widest uppercase flex items-center gap-3">
-                        <span wire:loading wire:target="exportExcel" class="animate-spin text-xs">🌀</span>
-                        <svg wire:loading.remove wire:target="exportExcel" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        DETAIL TRAINING
-                    </button>
-                </div>
+            <flux:text class="text-xs">
+                Akumulasi durasi training pada hasil filter.
+            </flux:text>
+        </flux:card>
+    </div> --}}
+
+    <flux:card class="space-y-5 overflow-visible">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+                <flux:heading size="lg">
+                    Riwayat training
+                </flux:heading>
+
+                <flux:text class="mt-1 text-xs">
+                    Detail peserta, training, trainer, jadwal, score, dan biaya.
+                </flux:text>
             </div>
         </div>
 
-        {{-- FILTER PANEL (Gaya Ramping Gambar 2) --}}
-        <div class="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
-                {{-- 1. Nama / NIK --}}
-                <div class="space-y-2">
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nama / NIK</label>
-                    <input type="text" wire:model.live.debounce.300ms="search" placeholder="CARI NAMA..."
-                        class="w-full px-5 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold uppercase outline-none focus:ring-4 focus:ring-blue-50 shadow-inner text-slate-900 placeholder:text-slate-300">
-                </div>
+        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div class="w-full sm:w-64">
+                <flux:field>
+                    <flux:label class="text-xs font-medium">
+                        Nama, NIK, atau department
+                    </flux:label>
 
-                {{-- 2. Judul Training --}}
-                <div class="space-y-2">
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Judul Training</label>
-                    <select wire:model.live="title_filter"
-                        class="w-full px-5 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold uppercase outline-none focus:ring-4 focus:ring-blue-50 shadow-inner appearance-none transition-all text-slate-900 cursor-pointer">
-                        <option value="">-- SEMUA JUDUL --</option>
-                        @foreach($allTitles as $t)
-                        <option value="{{ $t->title }}">{{ $t->title }}</option>
-                        @endforeach
-                    </select>
-                </div>
-
-                {{-- 3. Dari Tanggal --}}
-                <div class="space-y-2">
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mulai</label>
-                    <input type="date" wire:model.live="date_from"
-                        class="w-full px-5 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-blue-50 shadow-inner text-slate-600">
-                </div>
-
-                {{-- 4. Sampai Tanggal --}}
-                <div class="space-y-2">
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sampai</label>
-                    <input type="date" wire:model.live="date_to"
-                        class="w-full px-5 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-blue-50 shadow-inner text-slate-600">
-                </div>
-
-                {{-- 5. Tombol Reset --}}
-                <div>
-                    <button wire:click="resetFilters"
-                        class="w-full py-4 bg-blue-100 hover:bg-slate-200 text-black-400 font-black rounded-2xl text-[10px] uppercase tracking-widest transition-all active:scale-95 border border-slate-200/50 shadow-sm">
-                        RESET FILTER
-                    </button>
-                </div>
+                    <flux:input wire:model.live.debounce.300ms="search" type="search" placeholder="Cari peserta..."
+                        icon="magnifying-glass" clearable size="sm" class="text-xs" />
+                </flux:field>
             </div>
+
+            <div class="w-full sm:w-72">
+                <flux:field>
+                    <flux:label class="text-xs font-medium">
+                        Judul training
+                    </flux:label>
+
+                    <x-ui.searchable-multi-select wire:model="title_filter" :options="$allTitles"
+                        placeholder="Semua training" search-placeholder="Cari judul training..."
+                        empty-text="Training tidak ditemukan." clear-label="Bersihkan" :single="true"
+                        :max="1" value-key="title" label-key="title" size="sm"
+                        id="training-detail-title-filter" />
+                </flux:field>
+            </div>
+
+            <div class="w-full sm:w-64">
+                <flux:field>
+                    <flux:label class="text-xs font-medium">
+                        Trainer
+                    </flux:label>
+
+                    <x-ui.searchable-multi-select wire:model="trainer_filter" :options="$trainerList"
+                        placeholder="Semua trainer" search-placeholder="Cari trainer..."
+                        empty-text="Trainer tidak ditemukan." clear-label="Bersihkan" :single="true"
+                        :max="1" value-key="name" label-key="name" size="sm"
+                        id="training-detail-trainer-filter" />
+                </flux:field>
+            </div>
+
+            <div class="w-full sm:w-40">
+                <flux:field>
+                    <flux:label class="text-xs font-medium">
+                        Mulai
+                    </flux:label>
+
+                    <flux:input wire:model.live="date_from" type="date" size="sm" class="text-xs" />
+
+                    <flux:error name="date_from" />
+                </flux:field>
+            </div>
+
+            <div class="w-full sm:w-40">
+                <flux:field>
+                    <flux:label class="text-xs font-medium">
+                        Sampai
+                    </flux:label>
+
+                    <flux:input wire:model.live="date_to" type="date" size="sm" class="text-xs" />
+
+                    <flux:error name="date_to" />
+                </flux:field>
+            </div>
+
+            @if ($search !== '' || $title_filter !== [] || $trainer_filter !== [] || $date_from || $date_to)
+                <div class="flex w-full items-end sm:w-auto">
+                    <flux:button type="button" wire:click="resetFilters" wire:loading.attr="disabled"
+                        wire:target="resetFilters" variant="subtle" size="sm" class="w-full sm:w-auto">
+                        Reset filter
+                    </flux:button>
+                </div>
+            @endif
         </div>
 
-        {{-- STATS SECTION (Tetap Ada & Lebih Elegan) --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="bg-gradient-to-br from-blue-600 to-blue-700 rounded-[2.5rem] p-8 text-white shadow-xl shadow-blue-100">
-                <p class="text-blue-100 text-[10px] font-black uppercase tracking-widest mb-2 opacity-80">Total Kehadiran</p>
-                <h3 class="text-4xl font-black tracking-tight">{{ $total_trainings }} <span class="text-lg font-bold text-blue-200 uppercase ml-2">x Training</span></h3>
-            </div>
-            <div class="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-[2.5rem] p-8 text-white shadow-xl shadow-emerald-100">
-                <p class="text-emerald-100 text-[10px] font-black uppercase tracking-widest mb-2 opacity-80">Total Durasi Belajar</p>
-                <h3 class="text-4xl font-black tracking-tight">{{ $total_hours }} <span class="text-lg font-bold text-emerald-200 uppercase ml-2">Jam</span></h3>
-            </div>
-        </div>
+        @if ($search !== '' || $title_filter !== [] || $trainer_filter !== [] || $date_from || $date_to)
+            <div class="flex flex-wrap items-center gap-2">
+                <flux:text class="text-xs">
+                    Filter aktif:
+                </flux:text>
 
-        {{-- TABLE SECTION (Gaya Minimalis Gambar 2) --}}
-        <div class="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse whitespace-nowrap">
-                    <thead class="bg-blue-600">
-                        <tr>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Peserta</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Detail Training</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Trainer</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Jadwal</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none text-center">Score</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none text-center">Status & Fee</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-50">
-                        @forelse($rows as $row)
-                        <tr class="hover:bg-slate-50 transition-colors group" wire:key="report-{{ $row->participant_id }}">
-                            <td class="px-8 py-6">
-                                <div class="font-black text-slate-700 text-sm uppercase tracking-tight">{{ $row->employee_name }}</div>
-                                <div class="mt-1.5">
-                                    <span class="bg-blue-50 text-blue-600 text-[9px] px-2.5 py-1 rounded-lg border border-blue-100 inline-flex items-center font-black">
-                                        {{ $row->nik }} <span class="mx-1.5 opacity-30">•</span> {{ $row->department ?? 'N/A' }}
+                @if ($search !== '')
+                    <flux:badge size="sm" color="zinc">
+                        {{ $search }}
+                    </flux:badge>
+                @endif
+
+                @if (($title_filter[0] ?? '') !== '')
+                    <flux:badge size="sm" color="blue">
+                        {{ $title_filter[0] }}
+                    </flux:badge>
+                @endif
+
+                @if (($trainer_filter[0] ?? '') !== '')
+                    <flux:badge size="sm" color="emerald">
+                        {{ $trainer_filter[0] }}
+                    </flux:badge>
+                @endif
+
+                @if ($date_from || $date_to)
+                    <flux:badge size="sm" color="amber">
+                        {{ $date_from ?: 'Awal' }}
+                        –
+                        {{ $date_to ?: 'Sekarang' }}
+                    </flux:badge>
+                @endif
+            </div>
+        @endif
+
+        <flux:separator variant="subtle" />
+
+        <flux:table :paginate="$rows" pagination:scroll-to="#training-detail-content">
+            <flux:table.columns>
+                <flux:table.column class="text-xs font-semibold">
+                    Peserta
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-semibold">
+                    Training
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-semibold">
+                    Trainer
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-semibold">
+                    Jadwal
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-semibold" align="center">
+                    Score
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-semibold" align="right">
+                    Biaya dan status
+                </flux:table.column>
+            </flux:table.columns>
+
+            <flux:table.rows>
+                @forelse ($rows as $row)
+                    <flux:table.row :key="$row->participant_id">
+                        <flux:table.cell>
+                            <div class="min-w-44">
+                                <div class="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                    {{ $row->employee_name ?? '-' }}
+                                </div>
+
+                                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                    <flux:badge size="sm" color="blue">
+                                        {{ $row->nik ?? '-' }}
+                                    </flux:badge>
+
+                                    <span class="text-xs text-zinc-500">
+                                        {{ $row->department ?? 'Tanpa department' }}
                                     </span>
                                 </div>
-                            </td>
-                            <td class="px-8 py-6">
-                                <div class="text-xs font-black text-slate-700 uppercase leading-snug whitespace-normal min-w-[200px]">{{ $row->title }}</div>
-                                <div class="flex gap-2 mt-2">
-                                    <span class="px-2 py-0.5 rounded-md text-[9px] font-black border border-slate-100 uppercase bg-slate-50 text-slate-400">{{ $row->held_by }}</span>
-                                    <span class="px-2 py-0.5 rounded-md text-[9px] font-black border border-blue-100 uppercase bg-blue-50 text-blue-600">{{ $row->activity_name }}</span>
+                            </div>
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            <div class="min-w-56 whitespace-normal">
+                                <div class="text-sm font-medium leading-snug text-zinc-900 dark:text-zinc-100">
+                                    {{ $row->title ?? '-' }}
                                 </div>
-                            </td>
-                            {{-- Kolom Trainer yang sudah diperbaiki logikanya --}}
-                            <td class="px-8 py-6">
-                                <div class="flex flex-col gap-1">
-                                    @if($row->trainer_internal_nik)
-                                    {{-- LOGIKA: Punya NIK = Trainer Internal --}}
-                                    <div class="font-black text-slate-700 text-sm uppercase tracking-tight">
+
+                                <div class="mt-1 text-xs text-zinc-500">
+                                    {{ $row->held_by ?? '-' }}
+                                </div>
+
+                                @if ($row->activity_name || $row->skill_name)
+                                    <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                        @if ($row->activity_name)
+                                            <flux:badge size="sm" color="blue">
+                                                {{ $row->activity_name }}
+                                            </flux:badge>
+                                        @endif
+
+                                        @if ($row->skill_name)
+                                            <flux:badge size="sm" color="indigo">
+                                                {{ $row->skill_name }}
+                                            </flux:badge>
+                                        @endif
+                                    </div>
+                                @endif
+                            </div>
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            <div class="min-w-40">
+                                @if ($row->trainer_internal_nik)
+                                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                                         {{ $row->trainer_internal_name }}
                                     </div>
-                                    <div class="flex items-center gap-2 mt-1">
-                                        <span class="bg-emerald-50 text-emerald-600 text-[9px] px-2 py-0.5 rounded-lg border border-emerald-100 font-black uppercase italic shadow-sm">
-                                            INTERNAL TRAINER
-                                        </span>
-                                        <span class="text-[9px] text-slate-400 font-bold font-mono bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-100">
-                                            ID: {{ $row->trainer_internal_nik }}
+
+                                    <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                        <flux:badge size="sm" color="emerald">
+                                            Internal
+                                        </flux:badge>
+
+                                        <span class="text-xs tabular-nums text-zinc-500">
+                                            {{ $row->trainer_internal_nik }}
                                         </span>
                                     </div>
-                                    @elseif($row->trainer_external_name)
-                                    {{-- LOGIKA: Tidak punya NIK tapi ada Nama = Trainer Eksternal --}}
-                                    <div class="font-black text-slate-700 text-sm uppercase tracking-tight">
+                                @elseif ($row->trainer_external_name)
+                                    <div class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
                                         {{ $row->trainer_external_name }}
                                     </div>
-                                    <div class="flex items-center mt-1">
-                                        <span class="bg-sky-50 text-sky-600 text-[9px] px-2 py-0.5 rounded-lg border border-sky-100 font-black uppercase italic shadow-sm">
-                                            EKSTERNAL TRAINER
-                                        </span>
-                                    </div>
-                                    @else
-                                    {{-- Jika keduanya kosong --}}
-                                    <div class="flex items-center gap-2 opacity-30">
-                                        <div class="w-2 h-2 rounded-full bg-slate-300"></div>
-                                        <span class="text-slate-400 text-[10px] font-black italic uppercase tracking-widest text-center">
-                                            BELUM ADA TRAINER
-                                        </span>
-                                    </div>
-                                    @endif
-                                </div>
-                            </td>
 
-                            <td class="px-8 py-6">
-                                <div class="text-[11px] font-black text-slate-600 uppercase tracking-tight">📅 {{ \Carbon\Carbon::parse($row->training_date)->format('d M Y') }}</div>
-                                <div class="text-[10px] text-slate-400 mt-1 font-bold uppercase italic opacity-70">⏰ {{ \Carbon\Carbon::parse($row->start_time)->format('H:i') }} - {{ \Carbon\Carbon::parse($row->finish_time)->format('H:i') }}</div>
-                            </td>
-                            <td class="px-8 py-6 text-center">
-                                <input type="number"
-                                    wire:change="updateScore({{ $row->participant_id }}, $event.target.value)"
-                                    value="{{ $row->score }}"
-                                    class="w-16 px-2 py-2 bg-slate-50 border border-slate-100 rounded-xl text-sm font-black text-center outline-none focus:ring-4 focus:ring-blue-50 transition-all text-blue-600 shadow-inner"
-                                    placeholder="0">
-                            </td>
-                            <td class="px-8 py-6 text-center">
-                                <div class="font-black text-slate-700 text-xs italic tracking-tight">Rp{{ number_format($row->fee, 0, ',', '.') }}</div>
-                                <div class="mt-2">
-                                    <span class="px-3 py-1 rounded-xl text-[9px] font-black border uppercase {{ $row->is_certified == 'Yes' ? 'bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-100' : 'bg-slate-100 text-slate-300 border-slate-200' }}">
-                                        {{ $row->is_certified == 'Yes' ? 'Certified ✓' : 'No Cert' }}
+                                    <div class="mt-2">
+                                        <flux:badge size="sm" color="sky">
+                                            External
+                                        </flux:badge>
+                                    </div>
+                                @else
+                                    <span class="text-xs text-zinc-400">
+                                        Belum ada trainer
                                     </span>
+                                @endif
+                            </div>
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            <div class="min-w-28">
+                                <div class="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                                    {{ $row->training_date ? \Carbon\Carbon::parse($row->training_date)->format('d M Y') : '-' }}
                                 </div>
-                            </td>
-                        </tr>
-                        @empty
-                        <tr>
-                            <td colspan="6" class="px-8 py-24 text-center">
-                                <div class="flex flex-col items-center justify-center opacity-20">
-                                    <h3 class="text-slate-800 font-black uppercase text-[11px] tracking-widest">Data Tidak Ditemukan</h3>
+
+                                <div class="mt-1 text-xs tabular-nums text-zinc-500">
+                                    {{ $row->start_time ? \Carbon\Carbon::parse($row->start_time)->format('H:i') : '--:--' }}
+                                    –
+                                    {{ $row->finish_time ? \Carbon\Carbon::parse($row->finish_time)->format('H:i') : '--:--' }}
                                 </div>
-                            </td>
-                        </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
+                            </div>
+                        </flux:table.cell>
 
-            {{-- PAGINATION (Gaya Tombol Lebar Gambar 2) --}}
-            <div class="bg-slate-50/30 border-t border-slate-50 px-8 py-6 flex items-center justify-between">
-                <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    Showing data {{ $rows->firstItem() ?? 0 }} - {{ $rows->lastItem() ?? 0 }} of {{ $rows->total() }} Records
-                </div>
+                        <flux:table.cell align="center">
+                            @can(\App\Support\Auth\Permissions::UPDATE_TRAINING_DETAIL_NILAI)
+                                <div class="flex flex-col items-center gap-1">
+                                    <flux:input type="number" min="0" max="100" step="1"
+                                        inputmode="numeric"
+                                        wire:model.live.debounce.500ms="scores.{{ $row->participant_id }}"
+                                        wire:blur="saveScore({{ $row->participant_id }})"
+                                        wire:keydown.enter.prevent="saveScore({{ $row->participant_id }})"
+                                        wire:loading.attr="disabled" wire:target="saveScore({{ $row->participant_id }})"
+                                        size="sm" class="w-20 text-center text-xs tabular-nums" />
 
-                <div class="flex gap-2">
-                    <button wire:click="previousPage" @disabled($rows->onFirstPage())
-                        class="px-6 py-3 bg-white border border-slate-100 rounded-2xl text-[10px] font-black text-blue-600 hover:bg-blue-600 hover:text-white disabled:opacity-30 transition-all shadow-sm active:scale-95">
-                        PREV
-                    </button>
+                                    <flux:error name="scores.{{ $row->participant_id }}" />
+                                </div>
+                            @else
+                                <flux:badge size="sm" color="zinc">
+                                    {{ $row->score ?? '-' }}
+                                </flux:badge>
+                            @endcan
+                        </flux:table.cell>
 
-                    <div class="bg-blue-600 text-white px-5 py-3 rounded-2xl text-[10px] font-black shadow-lg shadow-blue-200 flex items-center">
-                        {{ $rows->currentPage() }}
-                    </div>
+                        <flux:table.cell align="right">
+                            <div class="min-w-28">
+                                <div class="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
+                                    Rp{{ number_format($row->fee ?? 0, 0, ',', '.') }}
+                                </div>
 
-                    <button wire:click="nextPage" @disabled(!$rows->hasMorePages())
-                        class="px-6 py-3 bg-blue-600 border border-blue-600 rounded-2xl text-[10px] font-black text-white hover:bg-blue-700 disabled:opacity-30 transition-all shadow-lg shadow-blue-100 active:scale-95">
-                        NEXT
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
+                                <div class="mt-2">
+                                    <flux:badge size="sm"
+                                        :color="$row->is_certified === 'Yes' ? 'emerald' : 'zinc'">
+                                        {{ $row->is_certified === 'Yes' ? 'Certified' : 'No certificate' }}
+                                    </flux:badge>
+                                </div>
+                            </div>
+                        </flux:table.cell>
+                    </flux:table.row>
+                @empty
+                    <flux:table.row>
+                        <flux:table.cell colspan="6" class="py-16 text-center">
+                            <div class="space-y-1">
+                                <div class="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                                    Data tidak ditemukan
+                                </div>
+
+                                <flux:text class="text-xs">
+                                    Ubah pencarian atau filter untuk melihat data lain.
+                                </flux:text>
+                            </div>
+                        </flux:table.cell>
+                    </flux:table.row>
+                @endforelse
+            </flux:table.rows>
+        </flux:table>
+    </flux:card>
 </div>

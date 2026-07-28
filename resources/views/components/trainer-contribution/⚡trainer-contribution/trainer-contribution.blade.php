@@ -1,278 +1,261 @@
-<div class="min-h-screen bg-white p-4 lg:p-8">
-    <div class="max-w-7xl mx-auto space-y-8">
+<div id="trainer-contribution-content" class="w-full space-y-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+            <flux:heading size="xl" level="1">
+                Training Contribution Report
+            </flux:heading>
 
-        {{-- HEADER SECTION: KOTAK JUDUL (Seragam) --}}
-        <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <div class="flex flex-col md:flex-row justify-between items-center gap-6">
-                <div>
-                    <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Trainer Contribution Report</h2>
-                    <p class="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">
-                        Total jam mengajar trainer berdasarkan kategori
-                    </p>
-                </div>
-
-                <button wire:click="exportExcel" wire:loading.attr="disabled"
-                    class="bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 px-8 rounded-2xl shadow-lg shadow-emerald-100 transition-all active:scale-95 text-[10px] tracking-widest uppercase">
-                    <span wire:loading wire:target="exportExcel" class="animate-spin text-xs">🌀</span>
-                    EXPORT EXCEL
-                </button>
-            </div>
+            <flux:subheading class="mt-1">
+                Total durasi mengajar trainer internal dan eksternal.
+            </flux:subheading>
         </div>
 
-        {{-- FILTER PANEL (DIPERSINGKAT & SEJAJAR) --}}
-        <div class="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm">
-            {{-- lg:grid-cols-5 memastikan semua input sejajar sebaris di layar komputer --}}
-            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-end">
+        @can(\App\Support\Auth\Permissions::EXPORT_TRAINING_CONTRIBUTION)
+            <flux:button wire:click="exportCsv" wire:loading.attr="disabled" wire:target="exportCsv" variant="primary"
+                icon="arrow-down-tray">
+                <span wire:loading.remove wire:target="exportCsv">
+                    Export CSV
+                </span>
 
-                {{-- 1. Pilih Trainer --}}
-                <div class="space-y-2">
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Pilih Trainer</label>
-                    <select wire:model.live="search"
-                        class="w-full px-5 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold uppercase outline-none focus:ring-4 focus:ring-blue-50 shadow-inner appearance-none transition-all text-slate-900 cursor-pointer">
-                        <option value="" class="text-slate-900 font-bold">-- SEMUA TRAINER --</option>
-                        @foreach($trainerList as $t)
-                        <option value="{{ $t->name }}" class="text-slate-900">{{ $t->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-
-                {{-- 2. Pilih Jabatan (Excel Style Dropdown dengan Search & Select All) --}}
-                <div class="space-y-2 relative" x-data="{ open: false, searchTerm: '' }">
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Jabatan</label>
-
-                    {{-- Tombol Pemicu (Trigger) --}}
-                    <button @click="open = !open" @click.away="open = false" type="button"
-                        class="w-full flex justify-between items-center px-5 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold uppercase outline-none focus:ring-4 focus:ring-blue-50 shadow-inner transition-all text-slate-900 cursor-pointer">
-                        <span class="truncate pr-2">
-                            @if(count((array)$position_filter) == 0)
-                            -- SEMUA JABATAN --
-                            @else
-                            {{ count((array)$position_filter) }} JABATAN TERPILIH
-                            @endif
-                        </span>
-                        <svg xmlns="http://www.w3.org/2000/svg" :class="open ? 'rotate-180' : ''" class="h-4 w-4 transition-transform duration-200 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </button>
-
-                    {{-- Dropdown Menu --}}
-                    <div x-show="open"
-                        x-transition:enter="transition ease-out duration-100"
-                        x-transition:enter-start="opacity-0 scale-95"
-                        x-transition:enter-end="opacity-100 scale-100"
-                        class="absolute z-[100] mt-2 w-full bg-white rounded-[1.5rem] shadow-2xl border border-slate-100 p-4 space-y-3">
-
-                        {{-- Input Search ala Excel --}}
-                        <div class="relative">
-                            <input type="text" x-model="searchTerm" placeholder="Cari jabatan..."
-                                class="w-full px-4 py-2 bg-slate-50 border-none rounded-xl text-[10px] font-bold uppercase outline-none focus:ring-2 focus:ring-blue-100 shadow-inner">
-                        </div>
-
-                        {{-- Opsi Select All --}}
-                        <div class="flex items-center justify-between px-2 pb-1 border-b border-slate-50">
-                            <button type="button" wire:click="selectAllPositions" class="text-[9px] font-black text-blue-600 uppercase hover:underline">Select All</button>
-                            <button type="button" wire:click="$set('position_filter', [])" class="text-[9px] font-black text-red-400 uppercase hover:underline">Clear</button>
-                        </div>
-
-                        {{-- Daftar Checkbox dengan Filter Search (Alpine.js) --}}
-                        <div class="max-h-60 overflow-y-auto custom-scrollbar-mini pr-2">
-                            @foreach($positionList as $p)
-                            <label x-show="searchTerm === '' || '{{ strtoupper($p->position_name) }}'.includes(searchTerm.toUpperCase())"
-                                class="flex items-center p-2 rounded-xl hover:bg-blue-50 cursor-pointer group transition-colors">
-                                <input type="checkbox"
-                                    wire:model.live="position_filter"
-                                    value="{{ $p->position_name }}"
-                                    class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
-                                <span class="ml-3 text-[11px] font-bold uppercase text-slate-600 group-hover:text-blue-700">
-                                    {{ $p->position_name }}
-                                </span>
-                            </label>
-                            @endforeach
-                        </div>
-
-                        {{-- Tombol Selesai --}}
-                        <div class="pt-2 border-t border-slate-50">
-                            <button @click="open = false" type="button" class="w-full py-2 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 transition-colors">
-                                Terapkan Filter
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {{-- 3. Mulai --}}
-                <div class="space-y-2">
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mulai</label>
-                    <input type="date" wire:model.live="date_from"
-                        class="w-full px-5 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-blue-50 shadow-inner text-slate-600">
-                </div>
-
-                {{-- 4. Sampai --}}
-                <div class="space-y-2">
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sampai</label>
-                    <input type="date" wire:model.live="date_to"
-                        class="w-full px-5 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-blue-50 shadow-inner text-slate-600">
-                </div>
-
-                {{-- 5. Tombol Reset --}}
-                <div>
-                    <button wire:click="resetFilters"
-                        class="w-full py-4 bg-blue-100 hover:bg-slate-200 text-black-400 font-black rounded-2xl text-[10px] uppercase tracking-widest transition-all active:scale-95 border border-slate-200/50 shadow-sm">
-                        RESET FILTER
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        {{-- TABLE SECTION --}}
-        <div class="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse whitespace-nowrap">
-                    <thead class="bg-blue-600">
-                        <tr>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none text-center w-16">No</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Nama Trainer</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Jabatan</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Organization</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Activities</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Skill</th>
-                            <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none text-center">Total Mengajar</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-50">
-                        @forelse ($contributions as $index => $item)
-                        <tr class="hover:bg-slate-50 transition-colors group">
-                            <td class="px-8 py-5 text-center font-black text-slate-300 text-xs">
-                                {{ $contributions->firstItem() + $index }}
-                            </td>
-                            <td class="px-8 py-5 font-bold text-slate-700 uppercase text-xs tracking-tight">
-                                {{ $item->trainer_name ?: 'TANPA NAMA' }}
-                            </td>
-                            <td class="px-8 py-5 font-bold text-blue-500 uppercase text-[10px] tracking-tight">
-                                {{ $item->position ?: '-' }}
-                            </td>
-                            <td class="px-8 py-5 font-bold text-slate-400 uppercase text-[11px] tracking-tight">
-                                {{ $item->organization }}
-                            </td>
-                            <td class="px-8 py-5 text-[11px] text-slate-500 font-black uppercase">
-                                {{ $item->activity_name ?: '-' }}
-                            </td>
-                            <td class="px-8 py-5 text-[11px] text-slate-500 font-black uppercase">
-                                {{ $item->skill_name ?: '-' }}
-                            </td>
-                            <td class="px-8 py-5 text-center">
-                                <span class="inline-flex items-center justify-center px-4 py-1.5 text-[11px] font-black text-blue-600 bg-blue-50 rounded-xl border border-blue-100 shadow-sm uppercase tracking-tighter">
-                                    {{ round($item->total_minutes / 60, 0) }} JAM
-                                </span>
-
-                                {{-- Tombol Lihat Detail --}}
-                                <button wire:click="showDetail('{{ $item->trainer_name }}')"
-                                    class="p-2 bg-white text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl border border-emerald-100 shadow-sm transition-all active:scale-95 group">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                                    </svg>
-                                </button>
-            </div>
-            </td>
-
-            </tr>
-            @empty
-            <tr>
-                <td colspan="6" class="px-8 py-24 text-center">
-                    <div class="flex flex-col items-center justify-center opacity-30">
-                        <h3 class="text-slate-800 font-black uppercase text-[11px] tracking-widest">Data Tidak Ditemukan</h3>
-                    </div>
-                </td>
-            </tr>
-            @endforelse
-            </tbody>
-            </table>
-        </div>
-
-        {{-- PAGINATION --}}
-        <div class="bg-slate-50/30 border-t border-slate-50 px-8 py-6 flex items-center justify-between">
-            <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Showing data {{ $contributions->firstItem() ?? 0 }}
-            </div>
-
-            <div class="flex gap-2">
-                <button wire:click="previousPage" @disabled($contributions->onFirstPage())
-                    class="px-6 py-3 bg-white border border-slate-100 rounded-2xl text-[10px] font-black text-blue-600 hover:bg-blue-600 hover:text-white disabled:opacity-30 transition-all shadow-sm active:scale-95">
-                    PREV
-                </button>
-
-                <button wire:click="nextPage" @disabled(!$contributions->hasMorePages())
-                    class="px-6 py-3 bg-blue-600 border border-blue-600 rounded-2xl text-[10px] font-black text-white hover:bg-blue-700 disabled:opacity-30 transition-all shadow-lg shadow-blue-100 active:scale-95">
-                    NEXT
-                </button>
-            </div>
-        </div>
+                <span wire:loading wire:target="exportCsv">
+                    Exporting...
+                </span>
+            </flux:button>
+        @endcan
     </div>
-</div>
 
-{{-- 🔥 MODAL DETAIL TRAINING (RAMPING & SCROLLABLE) --}}
-@if($showDetailModal)
-<div class="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md">
-    <div class="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-200">
+    <flux:separator variant="subtle" />
 
-        {{-- Header Modal --}}
-        <div class="p-8 border-b border-slate-50 flex justify-between items-center">
-            <div>
-                <h3 class="text-lg font-black text-slate-800 uppercase tracking-tight italic">Detail Mengajar</h3>
-                <p class="text-[10px] text-blue-500 font-black uppercase tracking-widest mt-1 italic">
-                    {{ $selectedTrainerName }}
-                </p>
-            </div>
-            <button wire:click="$set('showDetailModal', false)" class="h-10 w-10 flex items-center justify-center rounded-2xl bg-slate-50 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all font-bold shadow-inner">✕</button>
+    <flux:card class="space-y-5">
+        <div>
+            <flux:heading size="lg">
+                Contribution
+            </flux:heading>
+
+            <flux:text class="mt-1 text-xs">
+                Durasi dihitung dari jam mulai dan selesai setiap training.
+            </flux:text>
         </div>
 
+        {{-- TABLE FILTERS --}}
+        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div class="w-full sm:w-56">
+                <flux:field>
+                    <flux:label class="font-bold text-xs">
+                        Trainer
+                    </flux:label>
 
-        <div class="p-6 max-h-[400px] overflow-y-auto custom-scrollbar bg-slate-50/30">
-            <div class="space-y-3">
-                @forelse($trainerDetails as $detail)
-                <div class="p-4 bg-white rounded-[1.5rem] border border-slate-100 shadow-sm hover:border-blue-100 transition-all group">
-                    <div class="flex justify-between items-start">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-black text-slate-700 uppercase tracking-tight leading-tight group-hover:text-blue-600 transition-colors">
-                                {{ $detail->title }}
-                            </p>
-                            <div class="flex items-center gap-2 text-[9px] text-slate-400 font-bold uppercase italic">
-                                <span>📅 {{ \Carbon\Carbon::parse($detail->training_date)->format('d/m/y') }}</span>
-                                <span class="text-slate-200">•</span>
-                                <span>⏰ {{ \Carbon\Carbon::parse($detail->start_time)->format('H:i') }}-{{ \Carbon\Carbon::parse($detail->finish_time)->format('H:i') }}</span>
+                    <flux:select wire:model.live="search" size="sm" class="text-xs">
+                        <flux:select.option value="">
+                            Semua Trainer
+                        </flux:select.option>
+
+                        @foreach ($trainerList as $trainer)
+                            <flux:select.option value="{{ $trainer->name }}">
+                                {{ $trainer->name }}
+                            </flux:select.option>
+                        @endforeach
+                    </flux:select>
+                </flux:field>
+            </div>
+
+            {{-- <div class="w-full sm:w-72">
+                <flux:field>
+                    <flux:label class="font-bold text-xs">
+                        Jabatan
+                    </flux:label>
+
+                    <x-ui.searchable-multi-select wire:model.live="position_filter" :options="$positionList"
+                        placeholder="Semua Jabatan" search-placeholder="Cari jabatan..."
+                        empty-text="Jabatan tidak ditemukan." select-all-label="Pilih Semua" clear-label="Bersihkan"
+                        selected-suffix="dipilih" value-key="position_name" label-key="position_name" :max="500"
+                        size="sm" id="trainer-contribution-position-filter" />
+
+                    <flux:error name="position_filter.*" />
+                </flux:field>
+            </div> --}}
+
+            <div class="w-full sm:w-40">
+                <flux:field>
+                    <flux:label class="font-bold text-xs">
+                        Mulai
+                    </flux:label>
+
+                    <flux:input type="date" wire:model.live="date_from" size="sm" class="text-xs" />
+
+                    <flux:error name="date_from" />
+                </flux:field>
+            </div>
+
+            <div class="w-full sm:w-40">
+                <flux:field>
+                    <flux:label class="font-bold text-xs">
+                        Sampai
+                    </flux:label>
+
+                    <flux:input type="date" wire:model.live="date_to" size="sm" class="text-xs" />
+
+                    <flux:error name="date_to" />
+                </flux:field>
+            </div>
+
+            <div class="flex w-full items-end sm:w-auto">
+                <flux:button type="button" wire:click="resetFilters" wire:loading.attr="disabled"
+                    wire:target="resetFilters" variant="subtle" size="sm" icon="arrow-path"
+                    class="w-full whitespace-nowrap font-black uppercase text-xs sm:w-auto">
+                    Reset
+                </flux:button>
+            </div>
+        </div>
+
+        <flux:separator variant="subtle" />
+
+        <flux:table :paginate="$contributions" pagination:scroll-to="#trainer-contribution-content">
+            <flux:table.columns>
+                <flux:table.column class="text-xs font-black uppercase" align="center">
+                    No.
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase">
+                    Trainer
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase">
+                    Position
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase">
+                    Organization
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase">
+                    Activities
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase">
+                    Skills
+                </flux:table.column>
+
+                <flux:table.column class="text-xs font-black uppercase" align="center">
+                    Total
+                </flux:table.column>
+            </flux:table.columns>
+
+            <flux:table.rows>
+                @forelse ($contributions as $row)
+                    <flux:table.row :key="$row->trainer_token">
+                        <flux:table.cell class="text-center text-xs font-semibold tabular-nums">
+                            {{ $contributions->firstItem() + $loop->index }}
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            <div class="font-semibold uppercase text-xs">
+                                {{ $row->trainer_name ?: 'Tanpa Nama' }}
                             </div>
-                        </div>
-                        <div class="shrink-0">
-                            <span class="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] border border-emerald-100 uppercase">
-                                {{ round($detail->minutes / 60, 1) }}H
-                            </span>
-                        </div>
-                    </div>
-                </div>
+
+                            <flux:text class="mt-1 text-xs">
+                                {{ $row->nik ?: 'External Trainer' }}
+                            </flux:text>
+                        </flux:table.cell>
+
+                        <flux:table.cell class="text-xs font-semibold uppercase">
+                            {{ $row->position ?: '-' }}
+                        </flux:table.cell>
+
+                        <flux:table.cell class="text-xs font-semibold uppercase">
+                            {{ $row->organization ?: '-' }}
+                        </flux:table.cell>
+
+                        <flux:table.cell class="max-w-64 whitespace-normal text-xs">
+                            {{ $row->activity_name ?: '-' }}
+                        </flux:table.cell>
+
+                        <flux:table.cell class="max-w-64 whitespace-normal text-xs">
+                            {{ $row->skill_name ?: '-' }}
+                        </flux:table.cell>
+
+                        <flux:table.cell>
+                            <div class="flex items-center justify-center gap-2">
+                                <flux:badge size="sm" color="blue">
+                                    {{ round(((int) $row->total_minutes) / 60, 1) }} jam
+                                </flux:badge>
+
+                                <flux:button type="button" wire:click="showDetail('{{ $row->trainer_token }}')"
+                                    wire:loading.attr="disabled" wire:target="showDetail('{{ $row->trainer_token }}')"
+                                    variant="ghost" size="sm" icon="eye" title="Lihat detail" />
+                            </div>
+                        </flux:table.cell>
+                    </flux:table.row>
                 @empty
-                <p class="py-10 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest opacity-50">Belum ada data mengajar.</p>
+                    <flux:table.row>
+                        <flux:table.cell colspan="7" class="py-16 text-center font-black uppercase opacity-40">
+                            Data tidak ditemukan.
+                        </flux:table.cell>
+                    </flux:table.row>
+                @endforelse
+            </flux:table.rows>
+        </flux:table>
+    </flux:card>
+
+    <flux:modal wire:model.self="showDetailModal" wire:close="closeDetail" class="md:w-[42rem]" :dismissible="false">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg">
+                    Detail Mengajar
+                </flux:heading>
+
+                <flux:text class="mt-1 text-xs font-semibold uppercase">
+                    {{ $selectedTrainerName }}
+                </flux:text>
+            </div>
+
+            <div class="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                @forelse ($trainerDetails as $detail)
+                    <flux:card wire:key="trainer-detail-{{ $loop->index }}" class="p-4">
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="min-w-0">
+                                <div class="font-semibold uppercase text-xs">
+                                    {{ $detail['title'] }}
+                                </div>
+
+                                <flux:text class="mt-2 text-xs">
+                                    {{ $detail['training_date'] }} ·
+                                    {{ $detail['start_time'] }}–{{ $detail['finish_time'] }}
+                                </flux:text>
+                            </div>
+
+                            <flux:badge size="sm" color="emerald">
+                                {{ round(((int) $detail['minutes']) / 60, 1) }} jam
+                            </flux:badge>
+                        </div>
+                    </flux:card>
+                @empty
+                    <div class="py-10 text-center">
+                        <flux:text>
+                            Belum ada data mengajar.
+                        </flux:text>
+                    </div>
                 @endforelse
             </div>
-        </div>
 
-        {{-- Footer Modal --}}
-        <div class="p-6 bg-slate-50/50 space-y-3">
-            {{-- 🔥 Tombol Export Excel Detail --}}
-            <button wire:click="exportDetailExcel" wire:loading.attr="disabled"
-                class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-emerald-100 active:scale-95 flex items-center justify-center gap-2">
-                <span wire:loading wire:target="exportDetailExcel" class="animate-spin text-xs">🌀</span>
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 12 12 16.5m0 0L16.5 12M12 16.5V3" />
-                </svg>
-                EXPORT EXCEL (DETAILED)
-            </button>
+            <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <flux:button type="button" wire:click="closeDetail" variant="ghost">
+                    Close
+                </flux:button>
 
-            <button wire:click="$set('showDetailModal', false)"
-                class="w-full py-4 bg-white border border-slate-200 text-slate-400 font-black rounded-2xl text-[10px] uppercase tracking-widest hover:bg-slate-100 transition-all shadow-sm active:scale-95">
-                CLOSE
-            </button>
+                @can(\App\Support\Auth\Permissions::EXPORT_TRAINING_CONTRIBUTION)
+                    <flux:button type="button" wire:click="exportDetailCsv" wire:loading.attr="disabled"
+                        wire:target="exportDetailCsv" variant="primary" icon="arrow-down-tray">
+                        <span wire:loading.remove wire:target="exportDetailCsv">
+                            Export Detail
+                        </span>
+
+                        <span wire:loading wire:target="exportDetailCsv">
+                            Exporting...
+                        </span>
+                    </flux:button>
+                @endcan
+            </div>
         </div>
-    </div>
-</div>
-@endif
+    </flux:modal>
 </div>

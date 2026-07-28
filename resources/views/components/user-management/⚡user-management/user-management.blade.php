@@ -1,122 +1,779 @@
-<div class="min-h-screen bg-white p-4 lg:p-8">
-    <div class="max-w-7xl mx-auto space-y-8">
-        
-        {{-- HEADER SECTION: KOTAK JUDUL (Seragam dengan Dashboard & Employee) --}}
-        <div class="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-            <div class="flex flex-col md:flex-row justify-between items-center gap-6">
-                <div>
-                    <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">User Management</h2>
-                    <p class="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">
-                        Kelola akses internal personil HC
-                    </p>
-                </div>
+<div id="user-management-content" class="relative w-full">
+    <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div class="min-w-0">
+            <flux:heading size="xl" level="1">
+                User Management
+            </flux:heading>
 
-                {{-- SEARCH & BUTTON AREA --}}
-                <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                    <div class="relative flex-1 md:flex-none">
-                        <input wire:model.live="search" type="text" placeholder="Cari personil..."
-                            class="w-full md:w-64 bg-slate-50 border-none rounded-2xl px-5 py-3 text-[11px] font-bold uppercase focus:ring-2 focus:ring-blue-100 outline-none text-slate-600 shadow-inner">
-                    </div>
-
-                    <button wire:click="create" 
-                        class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-100 transition-all active:scale-95 flex-shrink-0">
-                        + USER BARU
-                    </button>
-                </div>
-            </div>
+            <flux:subheading size="lg" class="mb-6">
+                Kelola user, role, dan permission akses internal HC.
+            </flux:subheading>
         </div>
 
-        {{-- ALERT MESSAGE --}}
-        @if (session()->has('message'))
-        <div class="p-4 bg-emerald-50 text-emerald-700 rounded-2xl border border-emerald-100 text-[11px] font-black uppercase tracking-widest animate-in fade-in">
-            {{ session('message') }}
+        <div class="flex flex-wrap items-center gap-2 lg:flex-shrink-0">
+            @if ($activeTab === 'users')
+                @can(\App\Support\Auth\Permissions::CREATE_USER)
+                    <flux:button
+                        wire:click="create"
+                        variant="primary"
+                        icon="user-plus"
+                        size="sm"
+                        class="font-bold text-xs uppercase"
+                    >
+                        User Baru
+                    </flux:button>
+                @endcan
+            @endif
+
+            @if ($activeTab === 'roles')
+                @can(\App\Support\Auth\Permissions::CREATE_ROLE)
+                    <flux:button
+                        wire:click="createRole"
+                        variant="primary"
+                        icon="shield-check"
+                        size="sm"
+                        class="font-bold text-xs uppercase"
+                    >
+                        Role Baru
+                    </flux:button>
+                @endcan
+            @endif
         </div>
-        @endif
-
-        {{-- TABLE SECTION --}}
-        <div class="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-            <table class="w-full text-left">
-                <thead class="bg-blue-600">
-                    <tr>
-                        <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Nama User</th>
-                        <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest border-none">Email Akun</th>
-                        <th class="px-8 py-5 text-[10px] font-black text-white uppercase tracking-widest text-center w-52 border-none">Aksi</th>
-                    </tr>
-                </thead>
-
-                <tbody class="divide-y divide-slate-50">
-                    @forelse($users as $user)
-                    <tr class="hover:bg-slate-50 transition-colors group">
-                        <td class="px-8 py-5 text-sm font-bold text-slate-700 uppercase tracking-tight">{{ $user->name }}</td>
-                        <td class="px-8 py-5 text-sm text-slate-400 font-bold lowercase">{{ $user->email }}</td>
-                        <td class="px-8 py-5">
-                            <div class="flex justify-center items-center gap-3">
-                                <button wire:click="edit({{ $user->id }})"
-                                    class="px-5 py-2 bg-amber-400 text-white font-black rounded-xl shadow-lg shadow-amber-100 hover:bg-amber-500 transition-all text-[9px] uppercase tracking-widest">
-                                    Edit
-                                </button>
-
-                                <button onclick="confirm('Hapus akses user ini?') || event.stopImmediatePropagation()"
-                                    wire:click="delete({{ $user->id }})"
-                                    class="px-5 py-2 bg-rose-500 text-white font-black rounded-xl shadow-lg shadow-rose-100 hover:bg-rose-600 transition-all text-[9px] uppercase tracking-widest">
-                                    Delete
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                    @empty
-                    <tr>
-                        <td colspan="3" class="px-8 py-16 text-center text-slate-300 text-[11px] font-black uppercase tracking-[0.2em] opacity-60">Data tidak ditemukan.</td>
-                    </tr>
-                    @endforelse
-                </tbody>
-            </table>
-
-            {{-- PAGINATION --}}
-            <div class="px-8 py-6 border-t border-slate-50 bg-slate-50/30">
-                {{ $users->links() }}
-            </div>
-        </div>
-
-        {{-- MODAL (Tetap rapi tanpa italic) --}}
-        @if($isOpen)
-        <div class="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-            <div class="bg-white rounded-[3rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-                <div class="p-8 border-b border-slate-50 flex items-center gap-4">
-                    <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black">U</div>
-                    <h3 class="text-xl font-black text-slate-800 uppercase tracking-tight">{{ $userId ? 'Update User' : 'User Registration' }}</h3>
-                </div>
-
-                <div class="p-8 space-y-6 bg-white">
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Nama Lengkap</label>
-                        <input wire:model="name" type="text" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-[11px] font-bold uppercase shadow-inner outline-none focus:ring-4 focus:ring-blue-50">
-                        @error('name') <span class="text-rose-500 text-[9px] font-bold uppercase mt-2 block">{{ $message }}</span> @enderror
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Email</label>
-                        <input wire:model="email" type="email" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-[11px] font-bold lowercase shadow-inner outline-none focus:ring-4 focus:ring-blue-50">
-                        @error('email') <span class="text-rose-500 text-[9px] font-bold uppercase mt-2 block">{{ $message }}</span> @enderror
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                            Password {{ $userId ? '(Optional)' : '' }}
-                        </label>
-                        <input wire:model="password" type="password" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-[11px] font-bold shadow-inner outline-none focus:ring-4 focus:ring-blue-50">
-                        @error('password') <span class="text-rose-500 text-[9px] font-bold uppercase mt-2 block">{{ $message }}</span> @enderror
-                    </div>
-                </div>
-
-                <div class="p-8 bg-slate-50 flex justify-end gap-4">
-                    <button wire:click="closeModal" class="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors">Batal</button>
-                    <button wire:click="save" class="px-10 py-3 text-[10px] font-black text-white bg-blue-600 hover:bg-blue-700 rounded-2xl shadow-xl shadow-blue-100 transition-all active:scale-95 uppercase">
-                        {{ $userId ? 'Update' : 'Simpan' }}
-                    </button>
-                </div>
-            </div>
-        </div>
-        @endif
     </div>
+
+    <flux:separator variant="subtle" />
+
+    <flux:card class="mt-6 space-y-6">
+        <flux:tab.group>
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <flux:tabs
+                    wire:model="activeTab"
+                    variant="segmented"
+                    size="sm"
+                    scrollable
+                >
+                    @can(\App\Support\Auth\Permissions::VIEW_USER)
+                        <flux:tab name="users" icon="users">
+                            Users
+                        </flux:tab>
+                    @endcan
+
+                    @can(\App\Support\Auth\Permissions::VIEW_ROLE)
+                        <flux:tab name="roles" icon="shield-check">
+                            Roles & Permissions
+                        </flux:tab>
+                    @endcan
+                </flux:tabs>
+
+                <div class="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+                    @if ($activeTab === 'users')
+                        <div class="w-full sm:w-28">
+                            <flux:select
+                                wire:model.live="perPage"
+                                size="sm"
+                                class="text-xs"
+                            >
+                                @foreach ($perPageOptions as $option)
+                                    <flux:select.option value="{{ $option }}">
+                                        {{ $option }} / page
+                                    </flux:select.option>
+                                @endforeach
+                            </flux:select>
+                        </div>
+                    @endif
+
+                    <div class="w-full lg:w-[320px]">
+                        <flux:input
+                            wire:model.live.debounce.300ms="search"
+                            placeholder="{{ $activeTab === 'roles'
+                                ? 'Cari role atau permission'
+                                : 'Cari user, email, atau role' }}"
+                            icon="magnifying-glass"
+                            clearable
+                            size="sm"
+                            class="text-xs"
+                        />
+                    </div>
+                </div>
+            </div>
+
+            @can(\App\Support\Auth\Permissions::VIEW_USER)
+                <flux:tab.panel name="users">
+                    <div class="space-y-4">
+                        <div>
+                            <flux:heading size="lg">
+                                Users
+                            </flux:heading>
+
+                            <flux:text class="mt-1 text-xs">
+                                Daftar akun dan role yang terpasang pada user.
+                            </flux:text>
+                        </div>
+
+                        <flux:table
+                            :paginate="$users"
+                            pagination:scroll-to="#user-management-content"
+                        >
+                            <flux:table.columns>
+                                <flux:table.column
+                                    class="text-xs font-black uppercase"
+                                    align="center"
+                                >
+                                    No.
+                                </flux:table.column>
+
+                                <flux:table.column class="text-xs font-black uppercase">
+                                    Nama User
+                                </flux:table.column>
+
+                                <flux:table.column class="text-xs font-black uppercase">
+                                    Email Akun
+                                </flux:table.column>
+
+                                <flux:table.column class="text-xs font-black uppercase">
+                                    Role
+                                </flux:table.column>
+
+                                <flux:table.column
+                                    class="text-xs font-black uppercase"
+                                    align="center"
+                                >
+                                    Aksi
+                                </flux:table.column>
+                            </flux:table.columns>
+
+                            <flux:table.rows>
+                                @forelse ($users as $user)
+                                    @php
+                                        $targetIsSuperAdmin = $user->roles
+                                            ->contains(
+                                                'name',
+                                                'super-admin'
+                                            );
+
+                                        $mayEditTarget =
+                                            ! $targetIsSuperAdmin
+                                            || $isSuperAdmin;
+                                    @endphp
+
+                                    <flux:table.row :key="$user->id">
+                                        <flux:table.cell
+                                            class="text-center font-semibold text-xs tabular-nums"
+                                        >
+                                            {{ $users->firstItem() + $loop->index }}
+                                        </flux:table.cell>
+
+                                        <flux:table.cell class="font-semibold uppercase text-xs">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span>
+                                                    {{ $user->name }}
+                                                </span>
+
+                                                @if ($user->id === auth()->id())
+                                                    <flux:badge size="sm" color="blue">
+                                                        Current
+                                                    </flux:badge>
+                                                @endif
+                                            </div>
+                                        </flux:table.cell>
+
+                                        <flux:table.cell class="font-semibold text-xs">
+                                            {{ $user->email }}
+                                        </flux:table.cell>
+
+                                        <flux:table.cell>
+                                            <div class="flex flex-wrap gap-1.5">
+                                                @forelse ($user->roles as $role)
+                                                    <flux:badge
+                                                        size="sm"
+                                                        color="{{ $role->name === 'super-admin'
+                                                            ? 'emerald'
+                                                            : 'blue' }}"
+                                                    >
+                                                        {{ $role->name }}
+                                                    </flux:badge>
+                                                @empty
+                                                    <flux:badge size="sm" color="zinc">
+                                                        No Role
+                                                    </flux:badge>
+                                                @endforelse
+                                            </div>
+                                        </flux:table.cell>
+
+                                        <flux:table.cell>
+                                            <div class="flex items-center justify-center gap-1">
+                                                @can(\App\Support\Auth\Permissions::UPDATE_USER)
+                                                    @if ($mayEditTarget)
+                                                        <flux:button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            icon="pencil-square"
+                                                            wire:click="edit({{ $user->id }})"
+                                                            wire:loading.attr="disabled"
+                                                            wire:target="edit({{ $user->id }})"
+                                                            inset="top bottom"
+                                                            class="text-slate-500 hover:text-blue-600"
+                                                            title="Edit User"
+                                                        />
+                                                    @else
+                                                        <flux:badge size="sm" color="emerald">
+                                                            Protected
+                                                        </flux:badge>
+                                                    @endif
+                                                @endcan
+
+                                                @can(\App\Support\Auth\Permissions::DELETE_USER)
+                                                    @if (
+                                                        ! $targetIsSuperAdmin
+                                                        && $user->id !== auth()->id()
+                                                    )
+                                                        <flux:button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            icon="trash"
+                                                            wire:click="delete({{ $user->id }})"
+                                                            wire:confirm="Hapus user {{ $user->name }}? Tindakan ini tidak dapat dibatalkan."
+                                                            wire:loading.attr="disabled"
+                                                            wire:target="delete({{ $user->id }})"
+                                                            inset="top bottom"
+                                                            class="text-slate-500 hover:text-rose-600"
+                                                            title="Hapus User"
+                                                        />
+                                                    @endif
+                                                @endcan
+                                            </div>
+                                        </flux:table.cell>
+                                    </flux:table.row>
+                                @empty
+                                    <flux:table.row>
+                                        <flux:table.cell
+                                            colspan="5"
+                                            class="py-16 text-center font-black uppercase opacity-40"
+                                        >
+                                            Data user tidak ditemukan.
+                                        </flux:table.cell>
+                                    </flux:table.row>
+                                @endforelse
+                            </flux:table.rows>
+                        </flux:table>
+                    </div>
+                </flux:tab.panel>
+            @endcan
+
+            @can(\App\Support\Auth\Permissions::VIEW_ROLE)
+                <flux:tab.panel name="roles">
+                    <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+                        <div class="space-y-4 xl:col-span-2">
+                            <div>
+                                <flux:heading size="lg">
+                                    Roles
+                                </flux:heading>
+
+                                <flux:text class="mt-1 text-xs">
+                                    Kelola role dan permission. Hanya
+                                    super-admin yang dilindungi.
+                                </flux:text>
+                            </div>
+
+                            <flux:table>
+                                <flux:table.columns>
+                                    <flux:table.column class="text-xs font-black uppercase">
+                                        Role
+                                    </flux:table.column>
+
+                                    <flux:table.column class="text-xs font-black uppercase">
+                                        Permission Groups
+                                    </flux:table.column>
+
+                                    <flux:table.column
+                                        class="text-xs font-black uppercase"
+                                        align="center"
+                                    >
+                                        Aksi
+                                    </flux:table.column>
+                                </flux:table.columns>
+
+                                <flux:table.rows>
+                                    @forelse ($roles as $role)
+                                        <flux:table.row :key="$role->id">
+                                            <flux:table.cell>
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <div class="font-semibold uppercase text-xs">
+                                                        {{ $role->name }}
+                                                    </div>
+
+                                                    @if ($role->name === 'super-admin')
+                                                        <flux:badge size="sm" color="emerald">
+                                                            Protected
+                                                        </flux:badge>
+                                                    @endif
+                                                </div>
+
+                                                <flux:text class="mt-1 text-xs">
+                                                    {{ $role->permissions_count }}
+                                                    permissions
+                                                </flux:text>
+                                            </flux:table.cell>
+
+                                            <flux:table.cell>
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    @foreach ($permissionGroups as $group)
+                                                        @php
+                                                            $groupCount =
+                                                                $role->permissions
+                                                                    ->whereIn(
+                                                                        'name',
+                                                                        $group['names']
+                                                                    )
+                                                                    ->count();
+                                                        @endphp
+
+                                                        @if ($groupCount > 0)
+                                                            <flux:badge size="sm" color="zinc">
+                                                                {{ $group['label'] }}
+                                                                ·
+                                                                {{ $group['sequence'] }}
+                                                                ({{ $groupCount }})
+                                                            </flux:badge>
+                                                        @endif
+                                                    @endforeach
+
+                                                    @if ($role->permissions_count === 0)
+                                                        <flux:badge size="sm" color="zinc">
+                                                            No Permission
+                                                        </flux:badge>
+                                                    @endif
+                                                </div>
+                                            </flux:table.cell>
+
+                                            <flux:table.cell>
+                                                <div class="flex items-center justify-center gap-1">
+                                                    @if ($role->name !== 'super-admin')
+                                                        @can(\App\Support\Auth\Permissions::UPDATE_ROLE)
+                                                            <flux:button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                icon="pencil-square"
+                                                                wire:click="editRole({{ $role->id }})"
+                                                                wire:loading.attr="disabled"
+                                                                wire:target="editRole({{ $role->id }})"
+                                                                inset="top bottom"
+                                                                class="text-slate-500 hover:text-blue-600"
+                                                                title="Edit Role"
+                                                            />
+                                                        @endcan
+
+                                                        @can(\App\Support\Auth\Permissions::DELETE_ROLE)
+                                                            <flux:button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                icon="trash"
+                                                                wire:click="deleteRole({{ $role->id }})"
+                                                                wire:confirm="Hapus role {{ $role->name }}? Role hanya dapat dihapus jika belum dipakai user."
+                                                                wire:loading.attr="disabled"
+                                                                wire:target="deleteRole({{ $role->id }})"
+                                                                inset="top bottom"
+                                                                class="text-slate-500 hover:text-rose-600"
+                                                                title="Hapus Role"
+                                                            />
+                                                        @endcan
+                                                    @else
+                                                        <flux:badge size="sm" color="emerald">
+                                                            Protected
+                                                        </flux:badge>
+                                                    @endif
+                                                </div>
+                                            </flux:table.cell>
+                                        </flux:table.row>
+                                    @empty
+                                        <flux:table.row>
+                                            <flux:table.cell
+                                                colspan="3"
+                                                class="py-16 text-center font-black uppercase opacity-40"
+                                            >
+                                                Role belum tersedia.
+                                            </flux:table.cell>
+                                        </flux:table.row>
+                                    @endforelse
+                                </flux:table.rows>
+                            </flux:table>
+                        </div>
+
+                        <flux:card class="space-y-4">
+                            <div>
+                                <flux:heading size="lg">
+                                    Permission Master
+                                </flux:heading>
+
+                                <flux:text class="mt-1 text-xs">
+                                    Read-only, dikelompokkan berdasarkan modul.
+                                </flux:text>
+                            </div>
+
+                            <div class="max-h-[680px] space-y-3 overflow-y-auto pr-1">
+                                @forelse ($permissionGroups as $group)
+                                    <flux:card
+                                        wire:key="permission-group-{{ $group['sequence'] }}"
+                                        class="space-y-3 p-4"
+                                    >
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="font-bold text-sm">
+                                                    {{ $group['label'] }}
+                                                </div>
+
+                                                <flux:text class="mt-1 text-xs">
+                                                    {{ $group['description'] }}
+                                                </flux:text>
+                                            </div>
+
+                                            <flux:badge size="sm" color="blue">
+                                                {{ $group['sequence'] }}
+                                            </flux:badge>
+                                        </div>
+
+                                        <div class="space-y-2">
+                                            @forelse ($group['permissions'] as $permission)
+                                                <div
+                                                    wire:key="permission-master-{{ $permission->id }}"
+                                                    class="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-700"
+                                                >
+                                                    <flux:text class="min-w-0 break-all font-semibold text-xs">
+                                                        {{ $permission->name }}
+                                                    </flux:text>
+
+                                                    <flux:badge size="sm" color="zinc">
+                                                        {{ $group['sequence'] }}.{{ str_pad(
+                                                            (string) $loop->iteration,
+                                                            2,
+                                                            '0',
+                                                            STR_PAD_LEFT
+                                                        ) }}
+                                                    </flux:badge>
+                                                </div>
+                                            @empty
+                                                <flux:text class="text-xs text-amber-600">
+                                                    Permission group belum tersedia
+                                                    di database.
+                                                </flux:text>
+                                            @endforelse
+                                        </div>
+                                    </flux:card>
+                                @empty
+                                    <div class="py-10 text-center">
+                                        <flux:text>
+                                            Permission belum tersedia.
+                                        </flux:text>
+                                    </div>
+                                @endforelse
+                            </div>
+                        </flux:card>
+                    </div>
+                </flux:tab.panel>
+            @endcan
+        </flux:tab.group>
+    </flux:card>
+
+    {{-- USER FORM MODAL --}}
+    <flux:modal
+        wire:model.self="isUserModalOpen"
+        wire:close="closeUserModal"
+        class="md:w-[32rem]"
+        :dismissible="false"
+    >
+        <div class="space-y-6">
+            <div>
+                <flux:heading
+                    size="lg"
+                    class="flex items-center gap-2 font-black uppercase"
+                >
+                    <flux:icon.user class="h-5 w-5 text-blue-600" />
+
+                    {{ $userId
+                        ? 'Update Informasi User'
+                        : 'Registrasi User Baru' }}
+                </flux:heading>
+
+                <flux:text class="mt-1 text-xs font-bold uppercase text-slate-400 dark:text-slate-500">
+                    Lengkapi data akun dan tentukan role akses user.
+                </flux:text>
+            </div>
+
+            <form wire:submit.prevent="save" class="space-y-6">
+                <div class="space-y-5">
+                    <flux:field>
+                        <flux:label class="text-xs font-black uppercase">
+                            Nama Lengkap
+                        </flux:label>
+
+                        <flux:input
+                            wire:model="name"
+                            type="text"
+                            placeholder="Nama user"
+                            class="font-bold uppercase text-xs"
+                        />
+
+                        <flux:error name="name" />
+                    </flux:field>
+
+                    <flux:field>
+                        <flux:label class="text-xs font-black uppercase">
+                            Email
+                        </flux:label>
+
+                        <flux:input
+                            wire:model="email"
+                            type="email"
+                            placeholder="email@domain.com"
+                            class="font-bold text-xs"
+                        />
+
+                        <flux:error name="email" />
+                    </flux:field>
+
+                    <flux:field>
+                        <flux:label class="text-xs font-black uppercase">
+                            Password {{ $userId ? '(Optional)' : '' }}
+                        </flux:label>
+
+                        <flux:input
+                            wire:model="password"
+                            type="password"
+                            placeholder="{{ $userId
+                                ? 'Kosongkan jika tidak ingin mengubah password'
+                                : 'Minimal 8 karakter' }}"
+                            class="font-bold text-xs"
+                        />
+
+                        <flux:error name="password" />
+                    </flux:field>
+
+                    <flux:field>
+                        <flux:label class="text-xs font-black uppercase">
+                            Roles
+                        </flux:label>
+
+                        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            @forelse ($assignableRoles as $role)
+                                <div
+                                    wire:key="assignable-role-{{ $role->id }}"
+                                    class="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700"
+                                >
+                                    <flux:checkbox
+                                        wire:model="selectedRoles"
+                                        value="{{ $role->name }}"
+                                        label="{{ $role->name }}"
+                                    />
+
+                                    <flux:badge
+                                        size="sm"
+                                        color="{{ $role->name === 'super-admin'
+                                            ? 'emerald'
+                                            : 'zinc' }}"
+                                    >
+                                        R{{ str_pad(
+                                            (string) $loop->iteration,
+                                            2,
+                                            '0',
+                                            STR_PAD_LEFT
+                                        ) }}
+                                    </flux:badge>
+                                </div>
+                            @empty
+                                <flux:text>
+                                    Role belum tersedia.
+                                </flux:text>
+                            @endforelse
+                        </div>
+
+                        <flux:error name="selectedRoles" />
+                        <flux:error name="selectedRoles.*" />
+                    </flux:field>
+                </div>
+
+                <div class="flex gap-2 pt-2">
+                    <flux:spacer />
+
+                    <flux:button
+                        type="button"
+                        variant="ghost"
+                        wire:click="closeUserModal"
+                        class="font-black uppercase text-xs"
+                    >
+                        Batal
+                    </flux:button>
+
+                    <flux:button
+                        type="submit"
+                        variant="primary"
+                        wire:loading.attr="disabled"
+                        wire:target="save"
+                        class="font-black uppercase text-xs"
+                    >
+                        <span wire:loading.remove wire:target="save">
+                            Simpan Data
+                        </span>
+
+                        <span wire:loading wire:target="save">
+                            Menyimpan...
+                        </span>
+                    </flux:button>
+                </div>
+            </form>
+        </div>
+    </flux:modal>
+
+    {{-- ROLE FORM MODAL --}}
+    <flux:modal
+        wire:model.self="isRoleModalOpen"
+        wire:close="closeRoleModal"
+        class="md:w-[48rem]"
+        scroll="body"
+        :dismissible="false"
+    >
+        <div class="space-y-6">
+            <div>
+                <flux:heading
+                    size="lg"
+                    class="flex items-center gap-2 font-black uppercase"
+                >
+                    <flux:icon.shield-check class="h-5 w-5 text-blue-600" />
+
+                    {{ $roleId ? 'Update Role' : 'Create Role' }}
+                </flux:heading>
+
+                <flux:text class="mt-1 text-xs font-bold uppercase text-slate-400 dark:text-slate-500">
+                    Tentukan nama role dan permission per group.
+                </flux:text>
+            </div>
+
+            <form wire:submit.prevent="saveRole" class="space-y-6">
+                <flux:field>
+                    <flux:label class="text-xs font-black uppercase">
+                        Nama Role
+                    </flux:label>
+
+                    <flux:input
+                        wire:model="roleName"
+                        type="text"
+                        placeholder="training-admin"
+                        class="font-bold lowercase text-xs"
+                    />
+
+                    <flux:error name="roleName" />
+                </flux:field>
+
+                <flux:field>
+                    <flux:label class="text-xs font-black uppercase">
+                        Permissions
+                    </flux:label>
+
+                    <div class="max-h-[520px] space-y-4 overflow-y-auto pr-1">
+                        @forelse ($permissionGroups as $group)
+                            @php
+                                $selectedInGroup = count(
+                                    array_intersect(
+                                        $rolePermissions,
+                                        $group['names']
+                                    )
+                                );
+                            @endphp
+
+                            <flux:card
+                                wire:key="role-form-group-{{ $group['sequence'] }}"
+                                class="space-y-4 p-4"
+                            >
+                                <div class="flex items-start justify-between gap-4">
+                                    <div class="min-w-0">
+                                        <div class="font-bold text-sm">
+                                            {{ $group['label'] }}
+                                        </div>
+
+                                        <flux:text class="mt-1 text-xs">
+                                            {{ $group['description'] }}
+                                        </flux:text>
+                                    </div>
+
+                                    <div class="flex items-center gap-2">
+                                        <flux:badge size="sm" color="zinc">
+                                            {{ $selectedInGroup }}/{{ count($group['names']) }}
+                                        </flux:badge>
+
+                                        <flux:badge size="sm" color="blue">
+                                            {{ $group['sequence'] }}
+                                        </flux:badge>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                                    @forelse ($group['permissions'] as $permission)
+                                        <div
+                                            wire:key="role-permission-{{ $permission->id }}"
+                                            class="flex items-start justify-between gap-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700"
+                                        >
+                                            <flux:checkbox
+                                                wire:model.live="rolePermissions"
+                                                value="{{ $permission->name }}"
+                                                label="{{ $permission->name }}"
+                                            />
+
+                                            <flux:badge size="sm" color="zinc">
+                                                {{ $group['sequence'] }}.{{ str_pad(
+                                                    (string) $loop->iteration,
+                                                    2,
+                                                    '0',
+                                                    STR_PAD_LEFT
+                                                ) }}
+                                            </flux:badge>
+                                        </div>
+                                    @empty
+                                        <flux:text class="text-xs text-amber-600">
+                                            Permission group belum tersedia
+                                            di database.
+                                        </flux:text>
+                                    @endforelse
+                                </div>
+                            </flux:card>
+                        @empty
+                            <flux:text>
+                                Permission belum tersedia.
+                            </flux:text>
+                        @endforelse
+                    </div>
+
+                    <flux:error name="rolePermissions" />
+                    <flux:error name="rolePermissions.*" />
+                </flux:field>
+
+                <div class="flex gap-2 pt-2">
+                    <flux:spacer />
+
+                    <flux:button
+                        type="button"
+                        variant="ghost"
+                        wire:click="closeRoleModal"
+                        class="font-black uppercase text-xs"
+                    >
+                        Batal
+                    </flux:button>
+
+                    <flux:button
+                        type="submit"
+                        variant="primary"
+                        wire:loading.attr="disabled"
+                        wire:target="saveRole"
+                        class="font-black uppercase text-xs"
+                    >
+                        <span wire:loading.remove wire:target="saveRole">
+                            Simpan Data
+                        </span>
+
+                        <span wire:loading wire:target="saveRole">
+                            Menyimpan...
+                        </span>
+                    </flux:button>
+                </div>
+            </form>
+        </div>
+    </flux:modal>
 </div>

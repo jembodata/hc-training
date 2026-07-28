@@ -1,144 +1,351 @@
 <?php
 
-use Livewire\Component;
+use App\Support\Auth\Permissions;
+use Flux\Flux;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
+use Livewire\Component;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
-return new class extends Component
+new class extends Component
 {
-    // =========================================
-    // 1. PROPERTI
-    // =========================================
-    public $year;
+    private const MINIMUM_YEAR = 2026;
 
-    public function mount()
-    {
-        // Default Tahun
-        $this->year = date('Y');
-
-        if (!Auth::check()) {
-            return redirect()->route('login');
-        }
-    }
-
-    // =========================================
-    // 2. LOGIC DATA
-    // =========================================
-    public function buildData()
-{
-    $orgs = DB::table('organizations')->orderBy('org_name', 'ASC')->get();
-
-    $emp_counts = DB::table('employees')
-        ->select('org_id', DB::raw('count(*) as total'))
-        ->where('status', 'Active')
-        ->whereNull('deleted_at') 
-        ->where('status_employee', '!=', 'Harian Lepas')
-        ->groupBy('org_id')
-        ->pluck('total', 'org_id')
-        ->all();
-
-    $raw_hours = DB::table('training_participants as tp')
-        ->join('trainings as t', 'tp.training_id', '=', 't.id')
-        ->join('employees as e', 'tp.employee_id', '=', 'e.id')
-        ->select(
-            'e.org_id',
-            DB::raw('MONTH(t.training_date) as bln'),
-            DB::raw('SUM(TIMESTAMPDIFF(MINUTE, t.start_time, t.finish_time)) as total_minutes')
-        )
-        ->where('e.status', 'Active')
-        ->whereNull('e.deleted_at') 
-        ->whereNull('t.deleted_at')
-        ->where('e.status_employee', '!=', 'Harian Lepas')
-        ->whereYear('t.training_date', $this->year)
-        ->groupBy('e.org_id', 'bln')
-        ->get();
-
-    // Mapping awal: [ORG_ID][BULAN] = Menit Bulanan
-    $monthly_minutes = [];
-    foreach ($raw_hours as $row) {
-        $monthly_minutes[$row->org_id][$row->bln] = $row->total_minutes;
-    }
-
-    // 🔥 LOGIC AKUMULASI (YTD)
-    $matrix = [];
-    $currentMonth = ($this->year == date('Y')) ? date('n') : 12; // Jika tahun ini, stop di bulan sekarang. Jika tahun lalu, munculkan semua (12).
-
-    foreach ($orgs as $org) {
-        $runningSum = 0;
-        for ($bln = 1; $bln <= 12; $bln++) {
-            // Jika bulan yang di-loop melebihi bulan sekarang, jangan isi datanya
-            if ($bln > $currentMonth) {
-                $matrix[$org->id][$bln] = null; 
-                continue;
-            }
-
-            $currentMonthMinutes = $monthly_minutes[$org->id][$bln] ?? 0;
-            $runningSum += $currentMonthMinutes;
-            
-            $matrix[$org->id][$bln] = $runningSum;
-        }
-    }
-
-    return [
-        'orgs' => $orgs,
-        'emp_counts' => $emp_counts,
-        'matrix' => $matrix
+    private const MONTHS = [
+        1 => 'Jan',
+        2 => 'Feb',
+        3 => 'Mar',
+        4 => 'Apr',
+        5 => 'Mei',
+        6 => 'Jun',
+        7 => 'Jul',
+        8 => 'Agu',
+        9 => 'Sep',
+        10 => 'Okt',
+        11 => 'Nov',
+        12 => 'Des',
     ];
-}
 
+    public int $year;
+    public bool $show_export_modal = false;
 
-public function exportExcel()
-{
-    $fileName = 'Average_Training_Hours_' . $this->year . '.csv';
-    $data = $this->buildData();
+    public function mount(): void
+    {
+        Gate::authorize(Permissions::VIEW_AVERAGE_TRAINING);
 
-    return response()->streamDownload(function () use ($data) {
-        // 1. Excel BOM agar karakter spesial (seperti koma/titik) terbaca benar
-        echo "\xEF\xBB\xBF"; 
-        
-        // 2. Setting separator untuk Excel (titik koma karena format Indonesia)
-        echo "sep=;\n"; 
-        
-        // 3. JUDUL LAPORAN (Baris baru)
-        echo "REPORT AVERAGE TRAINING HOURS YTD " . $this->year . ";;;;;;;;;;;;;\n";
-        echo "Tanggal Cetak: " . date('d/m/Y H:i') . ";;;;;;;;;;;;;\n";
-        echo "\n"; // Kasih jarak satu baris biar rapi
+        $this->year = (int) date('Y');
+    }
 
-        // 4. Header Tabel
-        echo "Department;Total Employees;Jan;Feb;Mar;Apr;Mei;Jun;Jul;Agu;Sep;Okt;Nov;Des\n";
+    public function updatedYear(mixed $value): void
+    {
+        $year = (int) $value;
+        $currentYear = (int) date('Y');
 
-        foreach ($data['orgs'] as $org) {
-            $empCount = $data['emp_counts'][$org->id] ?? 0;
-            
-            $line = [
-                $org->org_name,
-                $empCount
-            ];
+        $this->year = min(
+            max($year, self::MINIMUM_YEAR),
+            $currentYear
+        );
+    }
 
-            for ($bln = 1; $bln <= 12; $bln++) {
-                $totalMinutes = $data['matrix'][$org->id][$bln] ?? 0;
-                $avgHours = ($empCount > 0) ? ($totalMinutes / 60) / $empCount : 0;
-                
-                // Gunakan number_format dengan koma sesuai permintaan sebelumnya untuk laptop Bapak
-                $line[] = number_format($avgHours, 2, ',', '');
+    public function openExportModal(): void
+    {
+        Gate::authorize(Permissions::EXPORT_AVERAGE_TRAINING);
+
+        $this->show_export_modal = true;
+    }
+
+    public function closeExportModal(): void
+    {
+        $this->show_export_modal = false;
+    }
+
+    public function exportExcel(): StreamedResponse
+    {
+        Gate::authorize(Permissions::EXPORT_AVERAGE_TRAINING);
+
+        try {
+            $data = $this->buildData();
+            $year = $this->year;
+            $fileName = "Average_Training_Hours_{$year}.csv";
+
+            $this->show_export_modal = false;
+
+            Flux::toast(
+                heading: 'Export Started',
+                text: 'File Average Training Hours sedang diunduh.',
+                variant: 'success',
+                duration: 3000,
+            );
+
+            return response()->streamDownload(
+                function () use ($data, $year): void {
+                    $stream = fopen('php://output', 'wb');
+
+                    if ($stream === false) {
+                        return;
+                    }
+
+                    fwrite($stream, "\xEF\xBB\xBF");
+                    fwrite($stream, "sep=;\n");
+
+                    fputcsv(
+                        $stream,
+                        ["REPORT AVERAGE TRAINING HOURS YTD {$year}"],
+                        ';'
+                    );
+
+                    fputcsv(
+                        $stream,
+                        [
+                            'Tanggal Cetak',
+                            now()->format('d/m/Y H:i'),
+                        ],
+                        ';'
+                    );
+
+                    fputcsv($stream, [], ';');
+
+                    fputcsv(
+                        $stream,
+                        [
+                            'Department',
+                            'Total Employees',
+                            ...array_values(self::MONTHS),
+                        ],
+                        ';'
+                    );
+
+                    foreach ($data['rows'] as $row) {
+                        $line = [
+                            $this->spreadsheetSafe(
+                                $row['organization_name']
+                            ),
+                            $row['employee_count'],
+                        ];
+
+                        foreach ($row['averages'] as $average) {
+                            $line[] = $average === null
+                                ? ''
+                                : number_format($average, 2, ',', '');
+                        }
+
+                        fputcsv($stream, $line, ';');
+                    }
+
+                    $overallLine = [
+                        'Overall Average',
+                        '',
+                    ];
+
+                    foreach ($data['overallAverages'] as $average) {
+                        $overallLine[] = $average === null
+                            ? ''
+                            : number_format($average, 2, ',', '');
+                    }
+
+                    fputcsv($stream, $overallLine, ';');
+
+                    fclose($stream);
+                },
+                $fileName,
+                [
+                    'Content-Type' => 'text/csv; charset=UTF-8',
+                    'Cache-Control' => 'no-store, no-cache',
+                ]
+            );
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            $this->show_export_modal = false;
+
+            Flux::toast(
+                heading: 'Export Failed',
+                text: 'Laporan gagal diekspor. Silakan coba kembali.',
+                variant: 'danger',
+                duration: 4000,
+            );
+
+            throw $exception;
+        }
+    }
+
+    public function with(): array
+    {
+        Gate::authorize(
+            Permissions::VIEW_AVERAGE_TRAINING
+        );
+
+        return [
+            ...$this->buildData(),
+            'months' => self::MONTHS,
+            'years' => range(
+                (int) date('Y'),
+                self::MINIMUM_YEAR
+            ),
+        ];
+    }
+
+    private function buildData(): array
+    {
+        $organizations = DB::table('organizations')
+            ->select(['id', 'org_name'])
+            ->orderBy('org_name')
+            ->get();
+
+        $employeeCounts = $this->employeeCounts();
+        $monthlyMinutes = $this->monthlyTrainingMinutes();
+
+        $currentMonth = $this->year === (int) date('Y')
+            ? (int) date('n')
+            : 12;
+
+        $rows = [];
+        $columnTotals = array_fill(1, 12, 0.0);
+        $organizationCount = max($organizations->count(), 1);
+        $totalTrainingMinutesYtd = 0;
+
+        foreach ($organizations as $organization) {
+            $employeeCount = (int) (
+                $employeeCounts[$organization->id] ?? 0
+            );
+
+            $runningMinutes = 0;
+            $averages = [];
+
+            for ($month = 1; $month <= 12; $month++) {
+                if ($month > $currentMonth) {
+                    $averages[$month] = null;
+
+                    continue;
+                }
+
+                $monthlyValue = (int) (
+                    $monthlyMinutes[$organization->id][$month] ?? 0
+                );
+
+                $runningMinutes += $monthlyValue;
+                $totalTrainingMinutesYtd += $monthlyValue;
+
+                $average = $employeeCount > 0
+                    ? ($runningMinutes / 60) / $employeeCount
+                    : 0.0;
+
+                $averages[$month] = $average;
+                $columnTotals[$month] += $average;
             }
 
-            // Bersihkan data
-            $cleanLine = array_map(function($val) {
-                return '"' . str_replace('"', '""', $val) . '"';
-            }, $line);
-
-            echo implode(';', $cleanLine) . "\n";
+            $rows[] = [
+                'organization_id' => (int) $organization->id,
+                'organization_name' => (string) $organization->org_name,
+                'employee_count' => $employeeCount,
+                'averages' => $averages,
+            ];
         }
-    }, $fileName);
-}
 
-    // =========================================
-    // 3. RENDER
-    // =========================================
-    public function render()
-{
-    
-    return view('components.average-training.⚡average-training.average-training', $this->buildData());
-}
+        $overallAverages = [];
+
+        for ($month = 1; $month <= 12; $month++) {
+            $overallAverages[$month] = $month > $currentMonth
+                ? null
+                : $columnTotals[$month] / $organizationCount;
+        }
+
+        $activeEmployeeCount = array_sum($employeeCounts);
+
+        return [
+            'rows' => $rows,
+            'overallAverages' => $overallAverages,
+            'summary' => [
+                'department_count' => $organizations->count(),
+                'active_employee_count' => $activeEmployeeCount,
+                'current_month' => $currentMonth,
+                'current_month_name' => self::MONTHS[$currentMonth],
+                'period_label' => sprintf(
+                    'Jan - %s %d',
+                    self::MONTHS[$currentMonth],
+                    $this->year
+                ),
+                'overall_average' => (float) (
+                    $overallAverages[$currentMonth] ?? 0
+                ),
+                'training_hours_ytd' => $totalTrainingMinutesYtd / 60,
+            ],
+        ];
+    }
+
+    private function employeeCounts(): array
+    {
+        return DB::table('employees')
+            ->select('org_id', DB::raw('COUNT(*) AS total'))
+            ->where('status', 'Active')
+            ->whereNull('deleted_at')
+            ->where('status_employee', '!=', 'Harian Lepas')
+            ->whereNotNull('org_id')
+            ->groupBy('org_id')
+            ->pluck('total', 'org_id')
+            ->map(fn(mixed $total): int => (int) $total)
+            ->all();
+    }
+
+    private function monthlyTrainingMinutes(): array
+    {
+        $records = DB::table('training_participants as tp')
+            ->join('trainings as t', 'tp.training_id', '=', 't.id')
+            ->join('employees as e', 'tp.employee_id', '=', 'e.id')
+            ->select(
+                'e.org_id',
+                DB::raw('MONTH(t.training_date) AS training_month'),
+                DB::raw(
+                    'COALESCE(SUM(
+                        CASE
+                            WHEN t.start_time IS NOT NULL
+                                AND t.finish_time IS NOT NULL
+                            THEN GREATEST(
+                                TIMESTAMPDIFF(
+                                    MINUTE,
+                                    t.start_time,
+                                    t.finish_time
+                                ),
+                                0
+                            )
+                            ELSE 0
+                        END
+                    ), 0) AS total_minutes'
+                )
+            )
+            ->where('e.status', 'Active')
+            ->whereNull('e.deleted_at')
+            ->where('e.status_employee', '!=', 'Harian Lepas')
+            ->whereNull('t.deleted_at')
+            ->whereNotNull('e.org_id')
+            ->whereYear('t.training_date', $this->year)
+            ->groupBy(
+                'e.org_id',
+                DB::raw('MONTH(t.training_date)')
+            )
+            ->get();
+
+        $matrix = [];
+
+        foreach ($records as $record) {
+            $matrix[(int) $record->org_id][(int) $record->training_month]
+                = (int) $record->total_minutes;
+        }
+
+        return $matrix;
+    }
+
+    private function spreadsheetSafe(string $value): string
+    {
+        $trimmed = ltrim($value);
+
+        if (
+            $trimmed !== '' &&
+            in_array($trimmed[0], ['=', '+', '-', '@'], true)
+        ) {
+            return "'" . $value;
+        }
+
+        return $value;
+    }
 };

@@ -1,97 +1,733 @@
 <?php
 
+use App\Models\User;
+use App\Support\Auth\Permissions;
+use Flux\Flux;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\WithPagination;
-use Illuminate\Validation\Rule;
-use App\Models\User;
-use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
-  new class extends Component {
+new class extends Component
+{
     use WithPagination;
 
-    // Properti Form
-    public $userId, $name, $email, $password;
-    
-    // UI State
-    public $isOpen = false;
-    public $search = '';
+    private const GUARD = 'web';
+    private const PROTECTED_ROLE = 'super-admin';
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
-    // Reset pagination saat mencari nama
-    public function updatingSearch() { $this->resetPage(); }
+    public string $activeTab = 'users';
+    public string $search = '';
+    public int $perPage = 10;
 
-    public function create()
+    public ?int $userId = null;
+    public string $name = '';
+    public string $email = '';
+    public string $password = '';
+    public array $selectedRoles = [];
+    public bool $isUserModalOpen = false;
+
+    public ?int $roleId = null;
+    public string $roleName = '';
+    public array $rolePermissions = [];
+    public bool $isRoleModalOpen = false;
+
+    public function mount(): void
     {
-        $this->resetFields();
-        $this->isOpen = true;
+        $user = Auth::user();
+
+        abort_unless(
+            $user && (
+                $user->can(Permissions::VIEW_USER)
+                || $user->can(Permissions::VIEW_ROLE)
+            ),
+            403
+        );
+
+        if (! $user->can(Permissions::VIEW_USER)) {
+            $this->activeTab = 'roles';
+        }
     }
 
-    public function edit($id)
+    public function updatingSearch(): void
     {
-        $user = User::findOrFail($id);
-        $this->userId = $user->id;
-        $this->name = $user->name;
-        $this->email = $user->email;
-        $this->password = ''; // Kosongkan password saat edit
-        $this->isOpen = true;
+        $this->resetPage();
     }
 
-    public function save()
+    public function updatedPerPage(mixed $value): void
     {
-        $rules = [
-            'name' => 'required|string|min:3',
-            'email' => ['required', 'email', Rule::unique('users', 'email')->ignore($this->userId)],
-        ];
+        $value = (int) $value;
 
-        // Password wajib diisi jika user baru, opsional jika edit
-        if (!$this->userId) {
-            $rules['password'] = 'required|min:6';
+        $this->perPage = in_array($value, self::PER_PAGE_OPTIONS, true)
+            ? $value
+            : 10;
+
+        $this->resetPage();
+    }
+
+    public function updatedActiveTab(string $value): void
+    {
+        $user = Auth::user();
+
+        if ($value === 'users' && ! $user?->can(Permissions::VIEW_USER)) {
+            $this->activeTab = 'roles';
+            return;
         }
 
-        $this->validate($rules);
-
-        $data = [
-            'name' => $this->name,
-            'email' => $this->email,
-        ];
-
-        if ($this->password) {
-            $data['password'] = Hash::make($this->password);
+        if ($value === 'roles' && ! $user?->can(Permissions::VIEW_ROLE)) {
+            $this->activeTab = 'users';
+            return;
         }
 
-        User::updateOrCreate(['id' => $this->userId], $data);
+        if (! in_array($value, ['users', 'roles'], true)) {
+            $this->activeTab = $user?->can(Permissions::VIEW_USER)
+                ? 'users'
+                : 'roles';
+        }
 
-        session()->flash('message', $this->userId ? 'User berhasil diperbarui.' : 'User baru berhasil ditambahkan.');
-        
-        $this->closeModal();
+        $this->resetPage();
     }
 
-    public function delete($id)
+    public function create(): void
     {
-        User::find($id)->delete();
-        session()->flash('message', 'User telah dihapus.');
+        Gate::authorize(Permissions::CREATE_USER);
+
+        $this->resetUserForm();
+        $this->isUserModalOpen = true;
     }
 
-    public function closeModal()
+    public function edit(int $id): void
     {
-        $this->isOpen = false;
-        $this->resetFields();
+        Gate::authorize(Permissions::UPDATE_USER);
+
+        $user = User::query()
+            ->with('roles')
+            ->findOrFail($id);
+
+        $this->authorizeSuperAdminAccountAccess($user);
+        $this->resetUserForm();
+
+        $this->userId = (int) $user->id;
+        $this->name = (string) $user->name;
+        $this->email = (string) $user->email;
+        $this->selectedRoles = $user->roles->pluck('name')->values()->all();
+        $this->isUserModalOpen = true;
     }
 
-    private function resetFields()
+    public function save(): void
+    {
+        Gate::authorize(
+            $this->userId === null
+                ? Permissions::CREATE_USER
+                : Permissions::UPDATE_USER
+        );
+
+        $this->name = trim($this->name);
+        $this->email = Str::lower(trim($this->email));
+        $this->selectedRoles = array_values(array_unique($this->selectedRoles));
+
+        $targetUser = $this->userId
+            ? User::query()->with('roles')->findOrFail($this->userId)
+            : null;
+
+        if ($targetUser) {
+            $this->authorizeSuperAdminAccountAccess($targetUser);
+        }
+
+        $validated = $this->validate([
+            'name' => ['required', 'string', 'min:3', 'max:255'],
+            'email' => [
+                'required',
+                'email:rfc,dns',
+                'max:255',
+                Rule::unique('users', 'email')
+                    ->whereNull('deleted_at')
+                    ->ignore($this->userId),
+            ],
+            'password' => $this->userId
+                ? ['nullable', 'string', 'min:8', 'max:255']
+                : ['required', 'string', 'min:8', 'max:255'],
+            'selectedRoles' => ['present', 'array'],
+            'selectedRoles.*' => [
+                'string',
+                'distinct',
+                Rule::in($this->assignableRoleNames()),
+                Rule::exists('roles', 'name')->where(
+                    fn ($query) => $query->where('guard_name', self::GUARD)
+                ),
+            ],
+        ], [
+            'name.required' => 'Nama user wajib diisi.',
+            'email.required' => 'Email wajib diisi.',
+            'email.email' => 'Format email tidak valid.',
+            'email.unique' => 'Email sudah digunakan.',
+            'password.required' => 'Password wajib diisi.',
+            'password.min' => 'Password minimal 8 karakter.',
+            'selectedRoles.*.in' => 'Role tersebut tidak dapat diberikan.',
+            'selectedRoles.*.exists' => 'Role yang dipilih tidak tersedia.',
+        ]);
+
+        if (
+            in_array(self::PROTECTED_ROLE, $validated['selectedRoles'], true)
+            && ! $this->currentUserIsSuperAdmin()
+        ) {
+            abort(403);
+        }
+
+        $wasUpdating = $targetUser !== null;
+
+        DB::transaction(function () use ($validated, $targetUser): void {
+            $user = $targetUser
+                ? User::query()->lockForUpdate()->findOrFail($targetUser->id)
+                : new User();
+
+            if ($user->exists) {
+                $user->load('roles');
+                $this->ensureLastSuperAdminIsPreserved(
+                    $user,
+                    $validated['selectedRoles']
+                );
+            }
+
+            $user->name = $validated['name'];
+            $user->email = $validated['email'];
+
+            if (filled($validated['password'] ?? null)) {
+                $user->password = Hash::make($validated['password']);
+            }
+
+            $user->save();
+            $user->syncRoles($validated['selectedRoles']);
+        }, attempts: 3);
+
+        $this->forgetPermissionCache();
+        $this->successToast(
+            $wasUpdating
+                ? 'User berhasil diperbarui.'
+                : 'User baru berhasil ditambahkan.'
+        );
+        $this->closeUserModal();
+    }
+
+    public function delete(int $id): void
+    {
+        Gate::authorize(Permissions::DELETE_USER);
+
+        $user = User::query()->with('roles')->findOrFail($id);
+
+        if ($user->id === Auth::id()) {
+            $this->warningToast('User yang sedang login tidak bisa dihapus.');
+            return;
+        }
+
+        if ($user->hasRole(self::PROTECTED_ROLE)) {
+            $this->warningToast('User super-admin tidak boleh dihapus dari UI.');
+            return;
+        }
+
+        DB::transaction(function () use ($user): void {
+            $user->syncRoles([]);
+            $user->delete();
+        }, attempts: 3);
+
+        $this->forgetPermissionCache();
+        $this->successToast('User telah dihapus.');
+    }
+
+    public function closeUserModal(): void
+    {
+        $this->isUserModalOpen = false;
+        $this->resetUserForm();
+    }
+
+    public function createRole(): void
+    {
+        Gate::authorize(Permissions::CREATE_ROLE);
+
+        $this->resetRoleForm();
+        $this->isRoleModalOpen = true;
+    }
+
+    public function editRole(int $id): void
+    {
+        Gate::authorize(Permissions::UPDATE_ROLE);
+
+        $role = Role::query()
+            ->where('guard_name', self::GUARD)
+            ->with(['permissions' => fn ($query) => $query
+                ->where('guard_name', self::GUARD)
+                ->whereIn('name', Permissions::all())
+                ->orderBy('name')])
+            ->findOrFail($id);
+
+        if ($role->name === self::PROTECTED_ROLE) {
+            $this->warningToast('Role super-admin tidak boleh diedit dari UI.');
+            return;
+        }
+
+        $this->resetRoleForm();
+        $this->roleId = (int) $role->id;
+        $this->roleName = (string) $role->name;
+        $this->rolePermissions = $role->permissions->pluck('name')->values()->all();
+        $this->isRoleModalOpen = true;
+    }
+
+    public function saveRole(): void
+    {
+        Gate::authorize(
+            $this->roleId === null
+                ? Permissions::CREATE_ROLE
+                : Permissions::UPDATE_ROLE
+        );
+
+        $this->roleName = Str::of($this->roleName)
+            ->lower()
+            ->trim()
+            ->replaceMatches('/\s+/', '-')
+            ->toString();
+
+        $this->rolePermissions = array_values(array_unique($this->rolePermissions));
+
+        $role = $this->roleId
+            ? Role::query()
+                ->where('guard_name', self::GUARD)
+                ->findOrFail($this->roleId)
+            : new Role(['guard_name' => self::GUARD]);
+
+        if ($role->exists && $role->name === self::PROTECTED_ROLE) {
+            $this->warningToast('Role super-admin tidak boleh diedit dari UI.');
+            return;
+        }
+
+        $validated = $this->validate([
+            'roleName' => [
+                'required',
+                'string',
+                'min:3',
+                'max:100',
+                'regex:/^[a-z0-9_-]+$/',
+                Rule::notIn([self::PROTECTED_ROLE]),
+                Rule::unique('roles', 'name')
+                    ->where(fn ($query) => $query->where('guard_name', self::GUARD))
+                    ->ignore($role->id),
+            ],
+            'rolePermissions' => ['present', 'array'],
+            'rolePermissions.*' => [
+                'string',
+                'distinct',
+                Rule::in(Permissions::all()),
+                Rule::exists('permissions', 'name')->where(
+                    fn ($query) => $query->where('guard_name', self::GUARD)
+                ),
+            ],
+        ], [
+            'roleName.required' => 'Nama role wajib diisi.',
+            'roleName.regex' => 'Gunakan huruf kecil, angka, strip, atau underscore.',
+            'roleName.unique' => 'Nama role sudah digunakan.',
+            'roleName.not_in' => 'Nama super-admin dilindungi.',
+            'rolePermissions.*.in' => 'Permission tidak terdaftar pada aplikasi.',
+            'rolePermissions.*.exists' => 'Permission tidak tersedia di database.',
+        ]);
+
+        $wasUpdating = $role->exists;
+
+        DB::transaction(function () use ($role, $validated): void {
+            $role->name = $validated['roleName'];
+            $role->guard_name = self::GUARD;
+            $role->save();
+            $role->syncPermissions($validated['rolePermissions']);
+        }, attempts: 3);
+
+        $this->forgetPermissionCache();
+        $this->successToast(
+            $wasUpdating
+                ? 'Role berhasil diperbarui.'
+                : 'Role baru berhasil dibuat.'
+        );
+        $this->closeRoleModal();
+    }
+
+    public function deleteRole(int $id): void
+    {
+        Gate::authorize(Permissions::DELETE_ROLE);
+
+        $role = Role::query()
+            ->where('guard_name', self::GUARD)
+            ->findOrFail($id);
+
+        if ($role->name === self::PROTECTED_ROLE) {
+            $this->warningToast('Role super-admin tidak boleh dihapus.');
+            return;
+        }
+
+        if (DB::table('model_has_roles')->where('role_id', $role->id)->exists()) {
+            $this->warningToast(
+                'Role masih dipakai user. Lepaskan role terlebih dahulu.'
+            );
+            return;
+        }
+
+        DB::transaction(function () use ($role): void {
+            $role->syncPermissions([]);
+            $role->delete();
+        }, attempts: 3);
+
+        $this->forgetPermissionCache();
+        $this->successToast('Role berhasil dihapus.');
+    }
+
+    public function closeRoleModal(): void
+    {
+        $this->isRoleModalOpen = false;
+        $this->resetRoleForm();
+    }
+
+    public function with(): array
+    {
+        $user = Auth::user();
+
+        abort_unless(
+            $user && (
+                $user->can(Permissions::VIEW_USER)
+                || $user->can(Permissions::VIEW_ROLE)
+            ),
+            403
+        );
+
+        $search = trim($this->search);
+        $canViewUsers = (bool) $user->can(Permissions::VIEW_USER);
+        $canViewRoles = (bool) $user->can(Permissions::VIEW_ROLE);
+        $canConfigureUsers = (bool) $user->canAny([
+            Permissions::CREATE_USER,
+            Permissions::UPDATE_USER,
+        ]);
+        $canConfigureRoles = (bool) $user->canAny([
+            Permissions::CREATE_ROLE,
+            Permissions::UPDATE_ROLE,
+        ]);
+        $isSuperAdmin = $this->currentUserIsSuperAdmin();
+
+        $users = User::query()
+            ->with(['roles' => fn ($query) => $query
+                ->where('guard_name', self::GUARD)
+                ->orderBy('name')])
+            ->when(! $canViewUsers, fn ($query) => $query->whereRaw('1 = 0'))
+            ->when($canViewUsers && $search !== '', function ($query) use ($search): void {
+                $query->where(function ($subQuery) use ($search): void {
+                    $subQuery
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhereHas('roles', fn ($roleQuery) => $roleQuery
+                            ->where('roles.guard_name', self::GUARD)
+                            ->where('roles.name', 'like', "%{$search}%"));
+                });
+            })
+            ->latest('id')
+            ->paginate($this->perPage);
+
+        $roles = Role::query()
+            ->where('guard_name', self::GUARD)
+            ->with(['permissions' => fn ($query) => $query
+                ->where('guard_name', self::GUARD)
+                ->whereIn('name', Permissions::all())
+                ->orderBy('name')])
+            ->withCount(['permissions' => fn ($query) => $query
+                ->where('guard_name', self::GUARD)
+                ->whereIn('name', Permissions::all())])
+            ->when(! $canViewRoles, fn ($query) => $query->whereRaw('1 = 0'))
+            ->when(
+                $canViewRoles && $this->activeTab === 'roles' && $search !== '',
+                fn ($query) => $query->where(function ($subQuery) use ($search): void {
+                    $subQuery
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhereHas('permissions', fn ($permissionQuery) => $permissionQuery
+                            ->where('permissions.guard_name', self::GUARD)
+                            ->whereIn('permissions.name', Permissions::all())
+                            ->where('permissions.name', 'like', "%{$search}%"));
+                })
+            )
+            ->orderByRaw(
+                'CASE WHEN name = ? THEN 0 ELSE 1 END',
+                [self::PROTECTED_ROLE]
+            )
+            ->orderBy('name')
+            ->get();
+
+        $assignableRoles = Role::query()
+            ->where('guard_name', self::GUARD)
+            ->when(
+                ! $canConfigureUsers,
+                fn ($query) => $query->whereRaw('1 = 0')
+            )
+            ->when(
+                ! $isSuperAdmin,
+                fn ($query) => $query->where('name', '!=', self::PROTECTED_ROLE)
+            )
+            ->orderByRaw(
+                'CASE WHEN name = ? THEN 0 ELSE 1 END',
+                [self::PROTECTED_ROLE]
+            )
+            ->orderBy('name')
+            ->get();
+
+        return [
+            'users' => $users,
+            'roles' => $roles,
+            'assignableRoles' => $assignableRoles,
+            'permissionGroups' => ($canViewRoles || $canConfigureRoles)
+                ? $this->permissionGroups()
+                : [],
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
+            'isSuperAdmin' => $isSuperAdmin,
+        ];
+    }
+
+    private function permissionGroups(): array
+    {
+        $permissions = Permission::query()
+            ->where('guard_name', self::GUARD)
+            ->whereIn('name', Permissions::all())
+            ->get()
+            ->keyBy('name');
+
+        return collect($this->permissionGroupDefinitions())
+            ->map(function (array $group) use ($permissions): array {
+                $names = $group['permissions'];
+                $group['names'] = $names;
+                $group['permissions'] = collect($names)
+                    ->map(fn (string $name) => $permissions->get($name))
+                    ->filter()
+                    ->values();
+
+                return $group;
+            })
+            ->all();
+    }
+
+    private function permissionGroupDefinitions(): array
+    {
+        return [
+            [
+                'sequence' => '01',
+                'label' => 'Dashboard',
+                'description' => 'Akses halaman ringkasan utama.',
+                'permissions' => [
+                    Permissions::VIEW_DASHBOARD,
+                ],
+            ],
+            [
+                'sequence' => '02',
+                'label' => 'Training',
+                'description' => 'Kelola data, batch, dan import training.',
+                'permissions' => [
+                    Permissions::VIEW_TRAINING,
+                    Permissions::UPDATE_TRAINING,
+                    Permissions::CREATE_TRAINING,
+                    Permissions::DELETE_TRAINING,
+                    Permissions::IMPORT_TRAINING,
+                ],
+            ],
+            [
+                'sequence' => '03',
+                'label' => 'Certificate Templates',
+                'description' => 'Kelola template sertifikat.',
+                'permissions' => [
+                    Permissions::VIEW_CERTIFICATE_TEMPLATE,
+                    Permissions::UPDATE_CERTIFICATE_TEMPLATE,
+                    Permissions::CREATE_CERTIFICATE_TEMPLATE,
+                    Permissions::ARCHIVE_CERTIFICATE_TEMPLATE,
+                ],
+            ],
+            [
+                'sequence' => '04',
+                'label' => 'Issued Certificates',
+                'description' => 'Penerbitan dan pengelolaan sertifikat.',
+                'permissions' => [
+                    Permissions::VIEW_CERTIFICATE,
+                    Permissions::DOWNLOAD_CERTIFICATE,
+                    Permissions::REVOKE_CERTIFICATE,
+                    Permissions::ISSUE_CERTIFICATE,
+                    Permissions::REISSUE_CERTIFICATE,
+                ],
+            ],
+            [
+                'sequence' => '05',
+                'label' => 'Average Training',
+                'description' => 'Lihat dan export Average Training.',
+                'permissions' => [
+                    Permissions::VIEW_AVERAGE_TRAINING,
+                    Permissions::EXPORT_AVERAGE_TRAINING,
+                ],
+            ],
+            [
+                'sequence' => '06',
+                'label' => 'Training Detail',
+                'description' => 'Lihat detail, update nilai, dan export laporan.',
+                'permissions' => [
+                    Permissions::VIEW_TRAINING_DETAIL,
+                    Permissions::UPDATE_TRAINING_DETAIL_NILAI,
+                    Permissions::EXPORT_TRAINING_DETAIL,
+                ],
+            ],
+            [
+                'sequence' => '07',
+                'label' => 'Training Penetration',
+                'description' => 'Lihat dan export Training Penetration.',
+                'permissions' => [
+                    Permissions::VIEW_TRAINING_PENETRATION,
+                    Permissions::EXPORT_TRAINING_PENETRATION,
+                ],
+            ],
+            [
+                'sequence' => '08',
+                'label' => 'Training Contribution',
+                'description' => 'Lihat dan export Training Contribution.',
+                'permissions' => [
+                    Permissions::VIEW_TRAINING_CONTRIBUTION,
+                    Permissions::EXPORT_TRAINING_CONTRIBUTION,
+                ],
+            ],
+            [
+                'sequence' => '09',
+                'label' => 'Employee',
+                'description' => 'Kelola data employee.',
+                'permissions' => [
+                    Permissions::VIEW_EMPLOYEE,
+                    Permissions::UPDATE_EMPLOYEE,
+                    Permissions::CREATE_EMPLOYEE,
+                    Permissions::DELETE_EMPLOYEE,
+                    Permissions::IMPORT_EMPLOYEE,
+                    Permissions::EXPORT_EMPLOYEE,
+                ],
+            ],
+            [
+                'sequence' => '10',
+                'label' => 'User Role',
+                'description' => 'Kelola akun user, role, dan assignment permission.',
+                'permissions' => [
+                    Permissions::CREATE_USER,
+                    Permissions::UPDATE_USER,
+                    Permissions::VIEW_USER,
+                    Permissions::DELETE_USER,
+                    Permissions::CREATE_ROLE,
+                    Permissions::UPDATE_ROLE,
+                    Permissions::VIEW_ROLE,
+                    Permissions::DELETE_ROLE,
+                ],
+            ],
+            [
+                'sequence' => '11',
+                'label' => 'Department / Position',
+                'description' => 'Kelola master department dan position.',
+                'permissions' => [
+                    Permissions::VIEW_DEPARTMENT_POSITION_DATA,
+                    Permissions::UPDATE_DEPARTMENT_POSITION_DATA,
+                    Permissions::CREATE_DEPARTMENT_POSITION_DATA,
+                    Permissions::DELETE_DEPARTMENT_POSITION_DATA,
+                ],
+            ],
+        ];
+    }
+
+    private function assignableRoleNames(): array
+    {
+        return Role::query()
+            ->where('guard_name', self::GUARD)
+            ->when(
+                ! $this->currentUserIsSuperAdmin(),
+                fn ($query) => $query->where('name', '!=', self::PROTECTED_ROLE)
+            )
+            ->pluck('name')
+            ->all();
+    }
+
+    private function authorizeSuperAdminAccountAccess(User $user): void
+    {
+        if (
+            $user->hasRole(self::PROTECTED_ROLE)
+            && ! $this->currentUserIsSuperAdmin()
+        ) {
+            abort(403);
+        }
+    }
+
+    private function ensureLastSuperAdminIsPreserved(
+        User $user,
+        array $selectedRoles
+    ): void {
+        if (
+            ! $user->hasRole(self::PROTECTED_ROLE)
+            || in_array(self::PROTECTED_ROLE, $selectedRoles, true)
+        ) {
+            return;
+        }
+
+        Role::query()
+            ->where('guard_name', self::GUARD)
+            ->where('name', self::PROTECTED_ROLE)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if (User::query()->role(self::PROTECTED_ROLE, self::GUARD)->count() <= 1) {
+            throw ValidationException::withMessages([
+                'selectedRoles' => 'Role super-admin terakhir tidak boleh dilepas.',
+            ]);
+        }
+    }
+
+    private function currentUserIsSuperAdmin(): bool
+    {
+        return (bool) Auth::user()?->hasRole(self::PROTECTED_ROLE);
+    }
+
+    private function resetUserForm(): void
     {
         $this->userId = null;
         $this->name = '';
         $this->email = '';
         $this->password = '';
+        $this->selectedRoles = [];
+        $this->resetValidation();
     }
 
-    public function with(): array
+    private function resetRoleForm(): void
     {
-        return [
-            'users' => User::where('name', 'like', '%' . $this->search . '%')
-                ->orWhere('email', 'like', '%' . $this->search . '%')
-                ->latest()
-                ->paginate(10),
-        ];
+        $this->roleId = null;
+        $this->roleName = '';
+        $this->rolePermissions = [];
+        $this->resetValidation();
     }
-}; ?>
+
+    private function forgetPermissionCache(): void
+    {
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+    }
+
+    private function successToast(string $text): void
+    {
+        Flux::toast(
+            heading: 'Success',
+            text: $text,
+            variant: 'success',
+            duration: 3000,
+        );
+    }
+
+    private function warningToast(string $text): void
+    {
+        Flux::toast(
+            heading: 'Warning',
+            text: $text,
+            variant: 'warning',
+            duration: 3500,
+        );
+    }
+};

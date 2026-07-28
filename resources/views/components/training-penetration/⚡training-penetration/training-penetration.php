@@ -1,198 +1,590 @@
 <?php
 
-use Livewire\Component;
+use App\Exports\TrainingPenetrationSummaryExport;
+use App\Support\Auth\Permissions;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
+use Livewire\Component;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 new class extends Component
 {
-    public $search = '';
-    public $dateFrom = '';
-    public $dateTo = '';
-    public $trainingId = '';
+    public function mount(): void
+    {
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_PENETRATION
+        );
+    }
 
-    public $selectedDept = null;
-    public $selectedType = null;
-    public $employeeList = [];
+    public string $departmentId = '';
+
+    public string $dateFrom = '';
+
+    public string $dateTo = '';
+
+    public string $trainingSearch = '';
+
+    public ?int $selectedTrainingId = null;
+
+    public string $selectedTrainingTitle = '';
+
+    public bool $showDetailModal = false;
+
+    public ?int $selectedDepartmentId = null;
+
+    public string $selectedDepartmentName = '';
+
+    public string $selectedType = '';
+
+    public array $employeeList = [];
 
     protected $queryString = [
-        'search' => ['except' => ''],
+        'departmentId' => ['except' => ''],
         'dateFrom' => ['except' => ''],
         'dateTo' => ['except' => ''],
-        'trainingId' => ['except' => ''],
     ];
 
-    public function resetFilters()
+    public function updatedDepartmentId(): void
     {
-        $this->reset(['search', 'dateFrom', 'dateTo', 'trainingId']);
+        $this->closeDetail();
     }
 
-    public function exportExcel()
+    public function updatedDateFrom(): void
     {
-        if (ob_get_level() > 0) ob_end_clean();
-
-        $fileName = 'Detail_Penetrasi_Training_' . now()->format('Ymd_His') . '.csv';
-        $headers = [
-            "Content-type"        => "text/csv",
-            "Content-Disposition" => "attachment; filename=$fileName",
-        ];
-
-        $callback = function () {
-            $file = fopen('php://output', 'w');
-            fprintf($file, "sep=,\n");
-            fputcsv($file, ['REPORT DETAIL PENETRASI TRAINING']);
-            fputcsv($file, ['Tanggal Filter:', ($this->dateFrom ?: '-') . ' s/d ' . ($this->dateTo ?: '-')]);
-            fputcsv($file, []);
-            fputcsv($file, ['Department', 'Nama Karyawan', 'NIK', 'Status Training', 'Judul Training']);
-
-            $orgs = DB::table('organizations')
-                ->when($this->search, function ($query) {
-                    $query->where('org_name', 'like', '%' . $this->search . '%');
-                })->get();
-
-            foreach ($orgs as $org) {
-                $employees = DB::table('employees')
-                    ->where('org_id', $org->id)
-                    ->where('status', 'Active') // Fix Case Sensitive
-                    ->get();
-
-                foreach ($employees as $emp) {
-                    $training = DB::table('training_participants as tp')
-                        ->join('trainings as t', 'tp.training_id', '=', 't.id')
-                        ->where('tp.employee_id', $emp->id)
-                        ->when($this->dateFrom && $this->dateTo, function ($q) {
-                            $q->whereBetween('t.training_date', [$this->dateFrom, $this->dateTo]);
-                        })
-                        ->when($this->trainingId, function ($q) {
-                            $q->where('t.id', $this->trainingId);
-                        })
-                        ->select('t.title')
-                        ->first();
-
-                    fputcsv($file, [
-                        $org->org_name,
-                        $emp->name,
-                        $emp->nik,
-                        $training ? 'SUDAH TRAINING' : 'BELUM TRAINING',
-                        $training ? $training->title : '-'
-                    ]);
-                }
-            }
-            fclose($file);
-        };
-
-        return response()->stream($callback, 200, $headers);
+        $this->closeDetail();
     }
 
-    public function showDetail($type, $deptId)
+    public function updatedDateTo(): void
     {
+        $this->closeDetail();
+    }
+
+    public function selectTraining(int $trainingId): void
+    {
+        $training = DB::table('trainings')
+            ->where('id', $trainingId)
+            ->whereNull('deleted_at')
+            ->select([
+                'id',
+                'title',
+            ])
+            ->first();
+
+        abort_if($training === null, 404);
+
+        $this->selectedTrainingId = (int) $training->id;
+        $this->selectedTrainingTitle = trim(
+            (string) $training->title
+        );
+        $this->trainingSearch = '';
+
+        $this->closeDetail();
+    }
+
+    public function clearTraining(): void
+    {
+        $this->selectedTrainingId = null;
+        $this->selectedTrainingTitle = '';
+        $this->trainingSearch = '';
+
+        $this->closeDetail();
+    }
+
+    public function resetFilters(): void
+    {
+        $this->reset([
+            'departmentId',
+            'dateFrom',
+            'dateTo',
+            'trainingSearch',
+            'selectedTrainingId',
+            'selectedTrainingTitle',
+        ]);
+
+        $this->closeDetail();
+    }
+
+    public function showDetail(
+        string $type,
+        int $departmentId
+    ): void {
+        abort_unless(
+            in_array($type, ['trained', 'untrained'], true),
+            404
+        );
+
+        $this->validateFilters();
+
+        $department = DB::table('organizations')
+            ->where('id', $departmentId)
+            ->select([
+                'id',
+                'org_name',
+            ])
+            ->first();
+
+        abort_if($department === null, 404);
+
+        $query = $this->activeEmployeesQuery()
+            ->where('e.org_id', $departmentId);
+
+        $this->applyTrainingStatusFilter(
+            $query,
+            $type === 'trained'
+        );
+
+        $this->selectedDepartmentId = (int) $department->id;
+        $this->selectedDepartmentName =
+            (string) $department->org_name;
         $this->selectedType = $type;
-        $this->selectedDept = DB::table('organizations')->where('id', $deptId)->value('org_name');
 
-        $query = DB::table('employees as e')
-            ->where('e.org_id', $deptId)
-            ->where('e.status', 'ACTIVE')
-            ->where('e.status_employee', '!=', 'Harian Lepas');
+        $this->employeeList = $query
+            ->select([
+                'e.id',
+                'e.name',
+                'e.nik',
+            ])
+            ->orderBy('e.name')
+            ->get()
+            ->map(
+                static fn(object $employee): array => [
+                    'id' => (int) $employee->id,
+                    'name' => (string) $employee->name,
+                    'nik' => (string) $employee->nik,
+                ]
+            )
+            ->all();
 
-        if ($type == 'trained') {
-            $query->whereExists(function ($q) {
-                $q->select(DB::raw(1))
-                    ->from('training_participants as tp')
-                    ->join('trainings as t', 'tp.training_id', '=', 't.id')
-                    ->whereColumn('tp.employee_id', 'e.id')
-                    ->when($this->dateFrom && $this->dateTo, function ($dq) {
-                        $dq->whereBetween('t.training_date', [$this->dateFrom, $this->dateTo]);
-                    })
-                    ->when($this->trainingId, function ($tq) {
-                        $tq->where('t.id', $this->trainingId);
-                    });
-            });
-        } else {
-            $query->whereNotExists(function ($q) {
-                $q->select(DB::raw(1))
-                    ->from('training_participants as tp')
-                    ->join('trainings as t', 'tp.training_id', '=', 't.id')
-                    ->whereColumn('tp.employee_id', 'e.id')
-                    ->when($this->dateFrom && $this->dateTo, function ($dq) {
-                        $dq->whereBetween('t.training_date', [$this->dateFrom, $this->dateTo]);
-                    })
-                    ->when($this->trainingId, function ($tq) {
-                        $tq->where('t.id', $this->trainingId);
-                    });
-            });
-        }
-
-        $this->employeeList = $query->select('e.id', 'e.name', 'e.nik')->get();
+        $this->showDetailModal = true;
     }
 
-    public function with()
+    public function closeDetail(): void
     {
-        $allOrganizations = DB::table('organizations')
-            ->select('id', 'org_name')
-            ->orderBy('org_name')
-            ->get();
-        $trainings = DB::table('trainings')
-            ->select('title') 
-            ->distinct()
-            ->orderBy('title')
-            ->get();
+        $this->showDetailModal = false;
+        $this->selectedDepartmentId = null;
+        $this->selectedDepartmentName = '';
+        $this->selectedType = '';
+        $this->employeeList = [];
+    }
 
-        $orgs = DB::table('organizations as mo')
-            ->select(
-                'mo.id',
-                'mo.org_name',
-                DB::raw('(SELECT COUNT(*) FROM employees WHERE org_id = mo.id AND status = "Active" AND status_employee != "Harian Lepas") as total_emp')
-            )
-            ->when($this->search, function ($query) {
-                $query->where('mo.org_name', 'like', '%' . $this->search . '%');
-            })
-            ->orderBy('mo.org_name')
-            ->get();
+    public function exportExcel(): BinaryFileResponse
+    {
+        Gate::authorize(
+            Permissions::EXPORT_TRAINING_PENETRATION
+        );
 
-        $trainedData = DB::table('training_participants as tp')
-            ->join('trainings as t', 'tp.training_id', '=', 't.id')
-            ->join('employees as e', 'tp.employee_id', '=', 'e.id')
-            ->select('e.org_id', DB::raw('COUNT(DISTINCT e.id) as trained_count'))
-            ->where('e.status', 'Active')
-            ->where('e.status_employee', '!=', 'Harian Lepas')
-            ->when($this->dateFrom, function ($query) {
-                $query->where('t.training_date', '>=', $this->dateFrom);
-            })
-            ->when($this->dateTo, function ($query) {
-                $query->where('t.training_date', '<=', $this->dateTo);
-            })
-           
-            ->when($this->trainingId, function ($query) {
-                $query->where('t.title', $this->trainingId);
-            })
-            ->groupBy('e.org_id')
-            ->pluck('trained_count', 'e.org_id')
-            ->all();
+        $this->validateFilters();
+
+        $report = $this->reportData();
+
+        return Excel::download(
+            new TrainingPenetrationSummaryExport(
+                rows: $report['results'],
+                sumTotal: $report['sumTotal'],
+                sumTrained: $report['sumTrained'],
+                totalPercentage: $report['totalPct'],
+                departmentLabel: $this->selectedDepartmentLabel(),
+                periodLabel: $this->selectedPeriodLabel(),
+                trainingLabel: $this->selectedTrainingTitle
+                    ?: 'Semua Training',
+            ),
+            'Training_Penetration_'
+                . now()->format('Ymd_His')
+                . '.xlsx'
+        );
+    }
+
+    public function with(): array
+    {
+        Gate::authorize(
+            Permissions::VIEW_TRAINING_PENETRATION
+        );
+
+        return [
+            ...$this->reportData(),
+            'trainingOptions' => $this->trainingOptions(),
+            'allOrganizations' => DB::table('organizations')
+                ->select([
+                    'id',
+                    'org_name',
+                ])
+                ->orderBy('org_name')
+                ->get(),
+        ];
+    }
+
+    private function reportData(): array
+    {
+        $organizations = $this->organizationsQuery()->get();
+        $employeeCounts = $this->activeEmployeeCounts();
+        $trainedCounts = $this->trainedEmployeeCounts();
 
         $sumTotal = 0;
         $sumTrained = 0;
 
-        $results = $orgs->map(function ($org) use ($trainedData, &$sumTotal, &$sumTrained) {
-            $trained = $trainedData[$org->id] ?? 0;
-            $total   = (int) $org->total_emp;
-            $sumTotal += $total;
-            $sumTrained += $trained;
+        $results = $organizations->map(
+            function (object $organization) use (
+                $employeeCounts,
+                $trainedCounts,
+                &$sumTotal,
+                &$sumTrained
+            ): object {
+                $organizationId = (int) $organization->id;
 
-            return (object)[
-                'org_id'    => $org->id,
-                'org_name'  => $org->org_name,
-                'total_emp' => $total,
-                'trained'   => $trained,
-                'percentage' => $total > 0 ? round(($trained / $total) * 100, 1) : 0
-            ];
-        });
+                $totalEmployees = (int) (
+                    $employeeCounts[$organizationId] ?? 0
+                );
+
+                $trainedEmployees = min(
+                    (int) (
+                        $trainedCounts[$organizationId] ?? 0
+                    ),
+                    $totalEmployees
+                );
+
+                $sumTotal += $totalEmployees;
+                $sumTrained += $trainedEmployees;
+
+                return (object) [
+                    'org_id' => $organizationId,
+                    'org_name' =>
+                    (string) $organization->org_name,
+                    'total_emp' => $totalEmployees,
+                    'trained' => $trainedEmployees,
+                    'untrained' => max(
+                        0,
+                        $totalEmployees - $trainedEmployees
+                    ),
+                    'percentage' => $this->percentage(
+                        $trainedEmployees,
+                        $totalEmployees
+                    ),
+                ];
+            }
+        );
 
         return [
-            'results'      => $results,
-            'sumTotal'     => $sumTotal,
-            'sumTrained'   => $sumTrained,
-            'totalPct'     => $sumTotal > 0 ? round(($sumTrained / $sumTotal) * 100, 1) : 0,
-            'allTrainings' => $trainings,
-            'allOrganizations' => $allOrganizations
+            'results' => $results,
+            'sumTotal' => $sumTotal,
+            'sumTrained' => $sumTrained,
+            'totalPct' => $this->percentage(
+                $sumTrained,
+                $sumTotal
+            ),
         ];
+    }
+
+    private function organizationsQuery(): Builder
+    {
+        return DB::table('organizations')
+            ->select([
+                'id',
+                'org_name',
+            ])
+            ->when(
+                $this->departmentId !== '',
+                fn(Builder $query) => $query->where(
+                    'id',
+                    (int) $this->departmentId
+                )
+            )
+            ->orderBy('org_name');
+    }
+
+    private function activeEmployeesQuery(): Builder
+    {
+        return DB::table('employees as e')
+            ->whereNull('e.deleted_at')
+            ->whereRaw(
+                'LOWER(TRIM(e.status)) = ?',
+                ['active']
+            )
+            ->where(
+                function (Builder $query): void {
+                    $query
+                        ->whereNull('e.status_employee')
+                        ->orWhereRaw(
+                            'LOWER(TRIM(e.status_employee)) <> ?',
+                            ['harian lepas']
+                        );
+                }
+            );
+    }
+
+    private function activeEmployeeCounts(): array
+    {
+        return $this->activeEmployeesQuery()
+            ->whereNotNull('e.org_id')
+            ->when(
+                $this->departmentId !== '',
+                fn(Builder $query) => $query->where(
+                    'e.org_id',
+                    (int) $this->departmentId
+                )
+            )
+            ->selectRaw(
+                'e.org_id as org_id, '
+                    . 'COUNT(*) as employee_count'
+            )
+            ->groupBy('e.org_id')
+            ->pluck('employee_count', 'org_id')
+            ->map(
+                static fn(mixed $count): int =>
+                (int) $count
+            )
+            ->all();
+    }
+
+    private function trainedEmployeeCounts(): array
+    {
+        $query = DB::table(
+            'training_participants as tp'
+        )
+            ->join(
+                'trainings as t',
+                't.id',
+                '=',
+                'tp.training_id'
+            )
+            ->join(
+                'employees as e',
+                'e.id',
+                '=',
+                'tp.employee_id'
+            )
+            ->whereNull('t.deleted_at')
+            ->whereNull('e.deleted_at')
+            ->whereRaw(
+                'LOWER(TRIM(e.status)) = ?',
+                ['active']
+            )
+            ->where(
+                function (Builder $query): void {
+                    $query
+                        ->whereNull('e.status_employee')
+                        ->orWhereRaw(
+                            'LOWER(TRIM(e.status_employee)) <> ?',
+                            ['harian lepas']
+                        );
+                }
+            )
+            ->whereNotNull('e.org_id')
+            ->when(
+                $this->departmentId !== '',
+                fn(Builder $query) => $query->where(
+                    'e.org_id',
+                    (int) $this->departmentId
+                )
+            );
+
+        $this->applyTrainingFilters($query);
+
+        return $query
+            ->selectRaw(
+                'e.org_id as org_id, '
+                    . 'COUNT(DISTINCT tp.employee_id) '
+                    . 'as trained_count'
+            )
+            ->groupBy('e.org_id')
+            ->pluck('trained_count', 'org_id')
+            ->map(
+                static fn(mixed $count): int =>
+                (int) $count
+            )
+            ->all();
+    }
+
+    private function applyTrainingStatusFilter(
+        Builder $employeeQuery,
+        bool $trained
+    ): void {
+        $callback = function (Builder $query): void {
+            $query
+                ->selectRaw('1')
+                ->from('training_participants as tp')
+                ->join(
+                    'trainings as t',
+                    't.id',
+                    '=',
+                    'tp.training_id'
+                )
+                ->whereColumn(
+                    'tp.employee_id',
+                    'e.id'
+                )
+                ->whereNull('t.deleted_at');
+
+            $this->applyTrainingFilters($query);
+        };
+
+        if ($trained) {
+            $employeeQuery->whereExists($callback);
+
+            return;
+        }
+
+        $employeeQuery->whereNotExists($callback);
+    }
+
+    private function applyTrainingFilters(
+        Builder $query
+    ): Builder {
+        return $query
+            ->when(
+                $this->dateFrom !== '',
+                fn(Builder $dateQuery) =>
+                $dateQuery->whereDate(
+                    't.training_date',
+                    '>=',
+                    $this->dateFrom
+                )
+            )
+            ->when(
+                $this->dateTo !== '',
+                fn(Builder $dateQuery) =>
+                $dateQuery->whereDate(
+                    't.training_date',
+                    '<=',
+                    $this->dateTo
+                )
+            )
+            ->when(
+                $this->selectedTrainingId !== null,
+                fn(Builder $titleQuery) =>
+                $titleQuery->whereRaw(
+                    'LOWER(TRIM(t.title)) = ('
+                        . 'SELECT LOWER(TRIM(selected.title)) '
+                        . 'FROM trainings as selected '
+                        . 'WHERE selected.id = ? '
+                        . 'AND selected.deleted_at IS NULL '
+                        . 'LIMIT 1'
+                        . ')',
+                    [$this->selectedTrainingId]
+                )
+            );
+    }
+
+    private function trainingOptions(): Collection
+    {
+        $search = mb_strtolower(
+            trim($this->trainingSearch)
+        );
+
+        return DB::table('trainings')
+            ->whereNull('deleted_at')
+            ->whereNotNull('title')
+            ->whereRaw("TRIM(title) <> ''")
+            ->when(
+                $search !== '',
+                fn(Builder $query) => $query->whereRaw(
+                    'LOWER(TRIM(title)) LIKE ?',
+                    ["%{$search}%"]
+                )
+            )
+            ->selectRaw('MIN(id) as id')
+            ->selectRaw('MIN(TRIM(title)) as title')
+            ->selectRaw('COUNT(*) as schedule_count')
+            ->groupByRaw('LOWER(TRIM(title))')
+            ->orderBy('title')
+            ->limit(20)
+            ->get()
+            ->map(
+                static fn(object $training): object =>
+                (object) [
+                    'id' => (int) $training->id,
+                    'title' => (string) $training->title,
+                    'description' =>
+                    (int) $training->schedule_count
+                        . ' sesi',
+                ]
+            );
+    }
+
+    private function selectedDepartmentLabel(): string
+    {
+        if ($this->departmentId === '') {
+            return 'Semua Department';
+        }
+
+        return (string) DB::table('organizations')
+            ->where('id', (int) $this->departmentId)
+            ->value('org_name');
+    }
+
+    private function selectedPeriodLabel(): string
+    {
+        if (
+            $this->dateFrom === ''
+            && $this->dateTo === ''
+        ) {
+            return 'Semua Periode';
+        }
+
+        return ($this->dateFrom ?: '-')
+            . ' s/d '
+            . ($this->dateTo ?: '-');
+    }
+
+    private function validateFilters(): void
+    {
+        $this->departmentId = trim(
+            $this->departmentId
+        );
+
+        $this->trainingSearch = trim(
+            $this->trainingSearch
+        );
+
+        $this->validate([
+            'departmentId' => [
+                'nullable',
+                'integer',
+                Rule::exists(
+                    'organizations',
+                    'id'
+                ),
+            ],
+            'dateFrom' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+            'dateTo' => [
+                'nullable',
+                'date_format:Y-m-d',
+                'after_or_equal:dateFrom',
+            ],
+            'selectedTrainingId' => [
+                'nullable',
+                'integer',
+                Rule::exists(
+                    'trainings',
+                    'id'
+                )->where(
+                    fn(Builder $query) =>
+                    $query->whereNull('deleted_at')
+                ),
+            ],
+            'trainingSearch' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+        ]);
+    }
+
+    private function percentage(
+        int $part,
+        int $total
+    ): float {
+        return $total > 0
+            ? round(
+                ($part / $total) * 100,
+                2
+            )
+            : 0.0;
     }
 };

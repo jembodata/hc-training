@@ -3,6 +3,14 @@
 
 <title>{{ $title ?? config('app.name') }}</title>
 
+<script>
+    if (!localStorage.getItem('flux.appearance')) {
+        localStorage.setItem('flux.appearance', 'light')
+    }
+</script>
+
+@fluxAppearance
+
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -14,6 +22,5 @@
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 
 @vite(['resources/css/app.css', 'resources/js/app.js'])
-@fluxAppearance
 
 @livewireStyles

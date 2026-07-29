@@ -18,7 +18,9 @@
 <body class="min-h-screen bg-white antialiased dark:bg-zinc-800">
     <flux:sidebar sticky collapsible class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
         <flux:sidebar.header>
-            <flux:sidebar.brand href="/" logo="{{ asset('favicon.svg') }}" name="TRMS" />
+            <div wire:ignore>
+                <flux:sidebar.brand href="/" logo="{{ asset('favicon.svg') }}" name="TRMS" />
+            </div>
 
             <flux:sidebar.collapse
                 class="in-data-flux-sidebar-on-desktop:not-in-data-flux-sidebar-collapsed-desktop:-mr-2" />
@@ -163,7 +165,6 @@
             </flux:menu>
         </flux:dropdown>
     </flux:sidebar>
-
     <flux:header class="lg:hidden">
         <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
 
@@ -213,38 +214,14 @@
 
     {{ $slot }}
 
-    @livewireScripts
     @fluxScripts
+    @livewireScripts
 
     @persist('toast')
         <flux:toast.group position="top end" class="pt-2 pr-6">
             <flux:toast />
         </flux:toast.group>
     @endpersist
-
-    <script data-navigate-once>
-        document.addEventListener('livewire:navigate', () => {
-            const page = document.getElementById('page-content')
-
-            if (!page) {
-                return
-            }
-
-            page.classList.add('opacity-0')
-        })
-
-        document.addEventListener('livewire:navigated', () => {
-            const page = document.getElementById('page-content')
-
-            if (!page) {
-                return
-            }
-
-            requestAnimationFrame(() => {
-                page.classList.remove('opacity-0')
-            })
-        })
-    </script>
 </body>
 
 </html>

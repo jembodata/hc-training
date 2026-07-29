@@ -1,7 +1,6 @@
 <x-layouts::app.sidebar :title="$title ?? null">
     <flux:main class="min-h-screen flex flex-col">
-        <div id="page-content"
-            class="flex-1 opacity-100 transition-opacity duration-150 ease-out motion-reduce:transition-none">
+        <div class="flex-1">
             {{ $slot }}
             <flux:separator variant="subtle" class="mt-6" />
         </div>
@@ -20,7 +19,6 @@
                     </x-slot>
                 </flux:brand>
             </div>
-        </footer>
-        <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+        </footer>        
     </flux:main>
 </x-layouts::app.sidebar>
